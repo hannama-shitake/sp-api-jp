@@ -10,8 +10,6 @@ _CREDENTIALS = {
     "refresh_token": config.AMAZON_AU_CREDENTIALS["refresh_token"],
     "lwa_app_id": config.AMAZON_AU_CREDENTIALS["lwa_app_id"],
     "lwa_client_secret": config.AMAZON_AU_CREDENTIALS["lwa_client_secret"],
-    "aws_access_key": config.AMAZON_AU_CREDENTIALS["aws_access_key"],
-    "aws_secret_key": config.AMAZON_AU_CREDENTIALS["aws_secret_key"],
 }
 
 _SELLER_ID = None  # main.py で set_seller_id() を呼び出して設定

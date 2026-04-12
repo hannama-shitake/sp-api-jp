@@ -1,4 +1,5 @@
 from typing import Optional, Dict, List
+import time
 from sp_api.api import CatalogItems, Products
 from sp_api.base import Marketplaces, SellingApiException
 import config
@@ -6,67 +7,40 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# SP-API の Credentials オブジェクト形式
+# SP-API の Credentials（AWSキーなし = LWAのみ）
 _CREDENTIALS = {
     "refresh_token": config.AMAZON_JP_CREDENTIALS["refresh_token"],
     "lwa_app_id": config.AMAZON_JP_CREDENTIALS["lwa_app_id"],
     "lwa_client_secret": config.AMAZON_JP_CREDENTIALS["lwa_client_secret"],
-    "aws_access_key": config.AMAZON_JP_CREDENTIALS["aws_access_key"],
-    "aws_secret_key": config.AMAZON_JP_CREDENTIALS["aws_secret_key"],
 }
+
+# CatalogItems v2022-04-01 のレート制限: 2 req/s（バースト5）
+_REQUEST_INTERVAL = 0.6  # 秒
 
 
 def get_jp_product(asin: str) -> Optional[Dict]:
     """
-    Amazon JP で ASIN の商品情報（タイトル・価格・在庫）を取得する。
+    Amazon JP で ASIN の価格・在庫を取得する。
+    タイトルは AU スクレイパーから取得済みのため、ここでは価格・在庫のみ。
 
     Returns:
-        {
-            "asin": str,
-            "title": str,
-            "price_jpy": int | None,
-            "in_stock": bool,
-        }
-        または None（商品が見つからない場合）
+        {"asin": str, "title": str, "price_jpy": int|None, "in_stock": bool, "weight_kg": None}
+        または None（JP に存在しない場合）
     """
-    try:
-        catalog_api = CatalogItems(
-            credentials=_CREDENTIALS,
-            marketplace=Marketplaces.JP,
-        )
-        resp = catalog_api.get_catalog_item(
-            asin=asin,
-            includedData=["summaries", "salesRanks", "dimensions"],
-        )
-        item = resp.payload
+    time.sleep(_REQUEST_INTERVAL)
+    price_jpy, in_stock = _get_jp_price(asin)
 
-        title = ""
-        summaries = item.get("summaries", [])
-        if summaries:
-            title = summaries[0].get("itemName", "")
-
-        # 重量取得（kg換算）
-        weight_kg = _extract_weight_kg(item)
-
-        price_jpy, in_stock = _get_jp_price(asin)
-
-        return {
-            "asin": asin,
-            "title": title,
-            "price_jpy": price_jpy,
-            "in_stock": in_stock,
-            "weight_kg": weight_kg,
-        }
-
-    except SellingApiException as e:
-        if "404" in str(e) or "NOT_FOUND" in str(e):
-            logger.debug("[amazon_jp] ASIN %s は JP に存在しません", asin)
-        else:
-            logger.error("[amazon_jp] CatalogItems エラー (ASIN %s): %s", asin, e)
+    if price_jpy is None and not in_stock:
+        # JP に存在しないか価格なし
         return None
-    except Exception as e:
-        logger.error("[amazon_jp] 予期せぬエラー (ASIN %s): %s", asin, e)
-        return None
+
+    return {
+        "asin": asin,
+        "title": "",  # AU スクレイパー側のタイトルを使用
+        "price_jpy": price_jpy,
+        "in_stock": in_stock,
+        "weight_kg": None,
+    }
 
 
 def _extract_weight_kg(item: dict) -> Optional[float]:
