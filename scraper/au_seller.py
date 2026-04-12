@@ -135,6 +135,52 @@ def _get_next_page_url(soup: BeautifulSoup) -> Optional[str]:
     return None
 
 
+def _set_au_delivery_location(session: requests.Session, postcode: str = "2000") -> bool:
+    """
+    セッションの配送先をオーストラリア（デフォルト: Sydney 2000）に設定する。
+    海外IPからアクセスすると「Currently unavailable」になるため、AU郵便番号を設定して回避。
+    """
+    proxies = _get_proxy()
+    try:
+        resp = session.get(AU_BASE_URL, headers=_get_headers(), proxies=proxies, timeout=20)
+        soup = BeautifulSoup(resp.text, "lxml")
+        csrf = ""
+        for inp in soup.select('input[name="anti-csrftoken-a2z"]'):
+            csrf = inp.get("value", "")
+            break
+
+        change_headers = {
+            **_get_headers(),
+            "x-requested-with": "XMLHttpRequest",
+            "content-type": "application/x-www-form-urlencoded",
+        }
+        data = {
+            "locationType": "LOCATION_INPUT",
+            "zipCode": postcode,
+            "storeContext": "generic",
+            "deviceType": "web",
+            "pageType": "Search",
+            "actionSource": "glow",
+            "anti-csrftoken-a2z": csrf,
+        }
+        r = session.post(
+            f"{AU_BASE_URL}/gp/delivery/ajax/address-change.html",
+            headers=change_headers,
+            data=data,
+            proxies=proxies,
+            timeout=15,
+        )
+        success = r.status_code == 200 and '"successful":1' in r.text
+        if success:
+            logger.info("[scraper] 配送先をAU(%s)に設定しました", postcode)
+        else:
+            logger.warning("[scraper] 配送先設定に失敗 (status=%d)", r.status_code)
+        return success
+    except Exception as e:
+        logger.warning("[scraper] 配送先設定エラー: %s", e)
+        return False
+
+
 def scrape_seller_products(seller_url: str, max_pages: int = None) -> List[Dict]:
     """
     Amazon AU のセラーストアページから商品一覧 (ASIN, タイトル, 価格) を取得する。
@@ -151,6 +197,7 @@ def scrape_seller_products(seller_url: str, max_pages: int = None) -> List[Dict]
         max_pages = config.SCRAPER_MAX_PAGES
 
     session = requests.Session()
+    _set_au_delivery_location(session)  # 配送先をAUに設定（価格表示のため）
     all_products: List[Dict] = []
     seen_asins = set()
     current_url = seller_url
