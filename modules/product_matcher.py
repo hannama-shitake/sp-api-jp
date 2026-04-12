@@ -29,13 +29,14 @@ def match_and_research(au_products: List[Dict], dry_run: bool = False) -> List[P
     profitable: List[ProfitResult] = []
     not_found = 0
     below_threshold = 0
+    no_au_price = 0
 
     for i, au_product in enumerate(au_products, 1):
         asin = au_product["asin"]
         au_price_aud = au_product.get("au_price_aud")
 
         if not au_price_aud or au_price_aud <= 0:
-            logger.debug("[matcher] %s: AU価格なし。スキップ", asin)
+            no_au_price += 1
             continue
 
         logger.debug("[matcher] [%d/%d] ASIN %s を JP で検索中...", i, len(au_products), asin)
@@ -87,8 +88,8 @@ def match_and_research(au_products: List[Dict], dry_run: bool = False) -> List[P
             below_threshold += 1
 
     logger.info(
-        "[matcher] 完了: 利益あり %d件 / JP未存在 %d件 / 基準未達 %d件",
-        len(profitable), not_found, below_threshold,
+        "[matcher] 完了: 利益あり %d件 / JP未存在 %d件 / 基準未達 %d件 / AU価格なし %d件",
+        len(profitable), not_found, below_threshold, no_au_price,
     )
     return profitable
 
