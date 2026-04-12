@@ -9,22 +9,16 @@ MARKETPLACE_AU = "A39IBJ37TRP1C6"
 
 # ── Amazon JP SP-API 認証 ─────────────────────────────────────
 AMAZON_JP_CREDENTIALS = {
-    "refresh_token": os.getenv("AMAZON_JP_REFRESH_TOKEN"),
-    "lwa_app_id": os.getenv("AMAZON_JP_LWA_CLIENT_ID"),
-    "lwa_client_secret": os.getenv("AMAZON_JP_LWA_CLIENT_SECRET"),
-    "aws_access_key": os.getenv("AWS_ACCESS_KEY"),
-    "aws_secret_key": os.getenv("AWS_SECRET_KEY"),
-    "role_arn": os.getenv("AWS_ROLE_ARN", ""),
+    "refresh_token": (os.getenv("AMAZON_JP_REFRESH_TOKEN") or "").strip(),
+    "lwa_app_id": (os.getenv("AMAZON_JP_LWA_CLIENT_ID") or "").strip(),
+    "lwa_client_secret": (os.getenv("AMAZON_JP_LWA_CLIENT_SECRET") or "").strip(),
 }
 
 # ── Amazon AU SP-API 認証 ─────────────────────────────────────
 AMAZON_AU_CREDENTIALS = {
-    "refresh_token": os.getenv("AMAZON_AU_REFRESH_TOKEN"),
-    "lwa_app_id": os.getenv("AMAZON_AU_LWA_CLIENT_ID"),
-    "lwa_client_secret": os.getenv("AMAZON_AU_LWA_CLIENT_SECRET"),
-    "aws_access_key": os.getenv("AWS_ACCESS_KEY"),
-    "aws_secret_key": os.getenv("AWS_SECRET_KEY"),
-    "role_arn": os.getenv("AWS_ROLE_ARN", ""),
+    "refresh_token": (os.getenv("AMAZON_AU_REFRESH_TOKEN") or "").strip(),
+    "lwa_app_id": (os.getenv("AMAZON_AU_LWA_CLIENT_ID") or "").strip(),
+    "lwa_client_secret": (os.getenv("AMAZON_AU_LWA_CLIENT_SECRET") or "").strip(),
 }
 
 # ── 利益計算パラメータ ────────────────────────────────────────
