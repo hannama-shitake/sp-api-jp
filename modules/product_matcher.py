@@ -2,7 +2,6 @@ from typing import List, Dict, Optional
 from datetime import datetime, timezone
 import config
 from apis import amazon_jp
-from apis import amazon_au
 from apis.exchange_rate import get_jpy_to_aud
 from modules.profit_calc import calc_profit, ProfitResult
 from db.database import get_connection
@@ -27,16 +26,8 @@ def match_and_research(au_products: List[Dict], dry_run: bool = False) -> List[P
     logger.info("[matcher] 為替レート: 1 JPY = %.6f AUD", exchange_rate)
     logger.info("[matcher] %d 件の商品を JP で照合します...", len(au_products))
 
-    # スクレイパーで価格が取れなかった商品は SP-API で補完
-    missing_price = [p["asin"] for p in au_products if not p.get("au_price_aud")]
-    if missing_price:
-        logger.info("[matcher] AU価格をSP-APIで補完中: %d件...", len(missing_price))
-        api_prices = amazon_au.get_au_prices(missing_price)
-        for p in au_products:
-            if not p.get("au_price_aud") and p["asin"] in api_prices:
-                p["au_price_aud"] = api_prices[p["asin"]]
-        recovered = sum(1 for p in au_products if p.get("au_price_aud"))
-        logger.info("[matcher] SP-API価格補完後: %d件/%d件に価格あり", recovered, len(au_products))
+    with_price = sum(1 for p in au_products if p.get("au_price_aud"))
+    logger.info("[matcher] AU価格あり: %d件/%d件", with_price, len(au_products))
 
     profitable: List[ProfitResult] = []
     not_found = 0

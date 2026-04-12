@@ -139,46 +139,54 @@ def _set_au_delivery_location(session: requests.Session, postcode: str = "2000")
     """
     セッションの配送先をオーストラリア（デフォルト: Sydney 2000）に設定する。
     海外IPからアクセスすると「Currently unavailable」になるため、AU郵便番号を設定して回避。
+    プロキシを変えながら最大3回リトライする。
     """
-    proxies = _get_proxy()
-    try:
-        resp = session.get(AU_BASE_URL, headers=_get_headers(), proxies=proxies, timeout=20)
-        soup = BeautifulSoup(resp.text, "lxml")
-        csrf = ""
-        for inp in soup.select('input[name="anti-csrftoken-a2z"]'):
-            csrf = inp.get("value", "")
-            break
+    import json as _json
 
-        change_headers = {
-            **_get_headers(),
-            "x-requested-with": "XMLHttpRequest",
-            "content-type": "application/x-www-form-urlencoded",
-        }
-        data = {
-            "locationType": "LOCATION_INPUT",
-            "zipCode": postcode,
-            "storeContext": "generic",
-            "deviceType": "web",
-            "pageType": "Search",
-            "actionSource": "glow",
-            "anti-csrftoken-a2z": csrf,
-        }
-        r = session.post(
-            f"{AU_BASE_URL}/gp/delivery/ajax/address-change.html",
-            headers=change_headers,
-            data=data,
-            proxies=proxies,
-            timeout=15,
-        )
-        success = r.status_code == 200 and '"successful":1' in r.text
-        if success:
-            logger.info("[scraper] 配送先をAU(%s)に設定しました", postcode)
-        else:
-            logger.warning("[scraper] 配送先設定に失敗 (status=%d)", r.status_code)
-        return success
-    except Exception as e:
-        logger.warning("[scraper] 配送先設定エラー: %s", e)
-        return False
+    change_headers = {
+        **_get_headers(),
+        "x-requested-with": "XMLHttpRequest",
+        "content-type": "application/x-www-form-urlencoded",
+        "referer": AU_BASE_URL + "/",
+    }
+    data = {
+        "locationType": "LOCATION_INPUT",
+        "zipCode": postcode,
+        "storeContext": "generic",
+        "deviceType": "web",
+        "pageType": "Search",
+        "actionSource": "glow",
+        "anti-csrftoken-a2z": "",
+    }
+
+    for attempt in range(3):
+        proxies = _get_proxy()
+        try:
+            # トップページを取得してセッションクッキーを確立
+            session.get(AU_BASE_URL, headers=_get_headers(), proxies=proxies, timeout=20)
+
+            r = session.post(
+                f"{AU_BASE_URL}/gp/delivery/ajax/address-change.html",
+                headers=change_headers,
+                data=data,
+                proxies=proxies,
+                timeout=15,
+            )
+            try:
+                body = _json.loads(r.text)
+                if body.get("isAddressUpdated") == 1 or body.get("successful") == 1:
+                    logger.info("[scraper] 配送先をAU(%s)に設定しました (attempt %d)", postcode, attempt + 1)
+                    return True
+            except Exception:
+                if '"isAddressUpdated":1' in r.text or '"successful":1' in r.text:
+                    logger.info("[scraper] 配送先をAU(%s)に設定しました (attempt %d)", postcode, attempt + 1)
+                    return True
+            logger.debug("[scraper] 配送先設定リトライ %d/3", attempt + 1)
+        except Exception as e:
+            logger.debug("[scraper] 配送先設定エラー (attempt %d): %s", attempt + 1, e)
+
+    logger.warning("[scraper] 配送先設定に失敗しました（価格が取れない場合があります）")
+    return False
 
 
 def scrape_seller_products(seller_url: str, max_pages: int = None) -> List[Dict]:
