@@ -19,6 +19,7 @@ AMAZON_AU_CREDENTIALS = {
     "refresh_token": (os.getenv("AMAZON_AU_REFRESH_TOKEN") or "").strip(),
     "lwa_app_id": (os.getenv("AMAZON_AU_LWA_CLIENT_ID") or "").strip(),
     "lwa_client_secret": (os.getenv("AMAZON_AU_LWA_CLIENT_SECRET") or "").strip(),
+    "seller_id": (os.getenv("AMAZON_AU_SELLER_ID") or "").strip(),
 }
 
 # ── 利益計算パラメータ ────────────────────────────────────────
