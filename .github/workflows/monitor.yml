@@ -31,5 +31,6 @@ jobs:
           AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
           AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
           SELLER_URL: ${{ secrets.SELLER_URL }}
+          MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
         run: |
           python main.py list --url "$SELLER_URL"
