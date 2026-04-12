@@ -25,12 +25,25 @@ class ProfitResult:
     recommended_au_price_aud: Optional[float] = None
 
 
+def get_shipping_jpy(weight_kg: Optional[float] = None) -> int:
+    """
+    重量に基づいて国際送料(円)を返す。
+    2kg以下 → DHL、2kg超 → EMS/eパケット、重量不明 → DHL
+    """
+    if weight_kg is None:
+        return config.DHL_SHIPPING_JPY
+    if weight_kg <= config.DHL_MAX_WEIGHT_KG:
+        return config.DHL_SHIPPING_JPY
+    return config.EMS_SHIPPING_JPY
+
+
 def calc_profit(
     asin: str,
     title: str,
     jp_price_jpy: int,
     au_price_aud: float,
     exchange_rate: Optional[float] = None,
+    weight_kg: Optional[float] = None,
 ) -> ProfitResult:
     """
     粗利計算を行う。
@@ -51,7 +64,7 @@ def calc_profit(
     if exchange_rate is None:
         exchange_rate = get_jpy_to_aud()
 
-    intl_shipping_jpy = config.INTL_SHIPPING_JPY
+    intl_shipping_jpy = get_shipping_jpy(weight_kg)
     au_fee_aud = round(au_price_aud * config.AU_FEE_RATE, 2)
     net_revenue_aud = au_price_aud - au_fee_aud
 

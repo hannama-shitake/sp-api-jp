@@ -29,7 +29,10 @@ AMAZON_AU_CREDENTIALS = {
 
 # ── 利益計算パラメータ ────────────────────────────────────────
 MIN_PROFIT_RATE = float(os.getenv("MIN_PROFIT_RATE", "30"))  # 最低粗利率(%)
-INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY", "2000"))  # 国際送料見積(円)
+INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY", "4500"))  # 国際送料デフォルト(円) DHL想定
+DHL_SHIPPING_JPY = int(os.getenv("DHL_SHIPPING_JPY", "4500"))   # DHL送料(2kg以下)
+EMS_SHIPPING_JPY = int(os.getenv("EMS_SHIPPING_JPY", "2500"))   # EMS/eパケット送料(2kg超)
+DHL_MAX_WEIGHT_KG = float(os.getenv("DHL_MAX_WEIGHT_KG", "2.0"))  # DHLのkg上限
 AU_FEE_RATE = float(os.getenv("AU_FEE_RATE", "0.15"))  # Amazon AU 手数料率
 PRICE_UPDATE_THRESHOLD = float(os.getenv("PRICE_UPDATE_THRESHOLD", "3"))  # 価格変動閾値(%)
 

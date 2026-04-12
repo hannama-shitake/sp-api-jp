@@ -57,6 +57,11 @@ def match_and_research(au_products: List[Dict], dry_run: bool = False) -> List[P
             logger.debug("[matcher] %s: JP在庫なし。スキップ", asin)
             continue
 
+        weight_kg = jp_product.get("weight_kg")
+        if weight_kg and weight_kg > 1.0:
+            logger.debug("[matcher] %s: 重量 %.3fkg > 1kg。スキップ", asin, weight_kg)
+            continue
+
         title = jp_product.get("title") or au_product.get("title", "")
         result = calc_profit(
             asin=asin,
@@ -64,6 +69,7 @@ def match_and_research(au_products: List[Dict], dry_run: bool = False) -> List[P
             jp_price_jpy=jp_price,
             au_price_aud=au_price_aud,
             exchange_rate=exchange_rate,
+            weight_kg=weight_kg,
         )
 
         logger.info(

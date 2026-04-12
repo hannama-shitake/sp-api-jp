@@ -36,7 +36,7 @@ def get_jp_product(asin: str) -> Optional[Dict]:
         )
         resp = catalog_api.get_catalog_item(
             asin=asin,
-            includedData=["summaries", "salesRanks"],
+            includedData=["summaries", "salesRanks", "dimensions"],
         )
         item = resp.payload
 
@@ -45,6 +45,9 @@ def get_jp_product(asin: str) -> Optional[Dict]:
         if summaries:
             title = summaries[0].get("itemName", "")
 
+        # 重量取得（kg換算）
+        weight_kg = _extract_weight_kg(item)
+
         price_jpy, in_stock = _get_jp_price(asin)
 
         return {
@@ -52,6 +55,7 @@ def get_jp_product(asin: str) -> Optional[Dict]:
             "title": title,
             "price_jpy": price_jpy,
             "in_stock": in_stock,
+            "weight_kg": weight_kg,
         }
 
     except SellingApiException as e:
@@ -63,6 +67,30 @@ def get_jp_product(asin: str) -> Optional[Dict]:
     except Exception as e:
         logger.error("[amazon_jp] 予期せぬエラー (ASIN %s): %s", asin, e)
         return None
+
+
+def _extract_weight_kg(item: dict) -> Optional[float]:
+    """
+    CatalogItems レスポンスから重量を kg で取得する。
+    """
+    try:
+        dimensions_list = item.get("dimensions", [])
+        for dim in dimensions_list:
+            weight = dim.get("package", {}).get("weight") or dim.get("item", {}).get("weight")
+            if weight:
+                value = float(weight.get("value", 0))
+                unit = weight.get("unit", "").lower()
+                if unit in ("kilograms", "kg"):
+                    return round(value, 3)
+                elif unit in ("grams", "g", "gram"):
+                    return round(value / 1000, 3)
+                elif unit in ("pounds", "lb", "lbs"):
+                    return round(value * 0.453592, 3)
+                elif unit in ("ounces", "oz"):
+                    return round(value * 0.0283495, 3)
+    except Exception:
+        pass
+    return None
 
 
 def _get_jp_price(asin: str):
