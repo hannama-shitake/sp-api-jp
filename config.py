@@ -52,4 +52,4 @@ SCRAPER_MAX_PAGES = int(os.getenv("SCRAPER_MAX_PAGES", "10"))  # 最大ページ
 DB_PATH = os.getenv("DB_PATH", "arbitrage.db")
 
 # ── SKU プレフィックス ────────────────────────────────────────
-SKU_PREFIX = "ARB-AU-"
+SKU_PREFIX = ""
