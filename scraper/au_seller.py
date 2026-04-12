@@ -84,16 +84,29 @@ def _parse_products_from_page(soup: BeautifulSoup) -> List[Dict]:
         title = title_el.get_text(strip=True) if title_el else ""
 
         # 価格（AUD）
+        # 方法1: .a-price .a-offscreen（例: "$29.95"）
         price_aud = None
-        price_whole = item.select_one(".a-price-whole")
-        price_frac = item.select_one(".a-price-fraction")
-        if price_whole:
+        offscreen = item.select_one("span.a-price span.a-offscreen")
+        if offscreen:
             try:
-                whole = re.sub(r"[^\d]", "", price_whole.get_text())
-                frac = re.sub(r"[^\d]", "", price_frac.get_text()) if price_frac else "0"
-                price_aud = float(f"{whole}.{frac}")
+                price_text = re.sub(r"[^\d.]", "", offscreen.get_text(strip=True))
+                if price_text:
+                    price_aud = float(price_text)
             except ValueError:
                 pass
+
+        # 方法2: .a-price-whole + .a-price-fraction（フォールバック）
+        if price_aud is None:
+            price_whole = item.select_one(".a-price-whole")
+            price_frac = item.select_one(".a-price-fraction")
+            if price_whole:
+                try:
+                    whole = re.sub(r"[^\d]", "", price_whole.get_text())
+                    frac = re.sub(r"[^\d]", "", price_frac.get_text()) if price_frac else "0"
+                    if whole:
+                        price_aud = float(f"{whole}.{frac}")
+                except ValueError:
+                    pass
 
         # 商品URL
         link_el = item.select_one("h2 a")
