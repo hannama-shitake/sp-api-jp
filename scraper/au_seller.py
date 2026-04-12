@@ -1,33 +1,67 @@
 import re
 import time
+import random
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
+import os
 import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-AU,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+]
 
 AU_BASE_URL = "https://www.amazon.com.au"
 
+# Webshare プロキシリスト（環境変数から取得、なければ直接接続）
+_PROXY_USER = os.getenv("PROXY_USER", "")
+_PROXY_PASS = os.getenv("PROXY_PASS", "")
+_PROXY_LIST = [
+    ("31.59.20.176", "6754"),
+    ("198.23.239.134", "6540"),
+    ("45.38.107.97", "6014"),
+    ("107.172.163.27", "6543"),
+    ("198.105.121.200", "6462"),
+    ("216.10.27.159", "6837"),
+    ("142.111.67.146", "5611"),
+    ("191.96.254.138", "6185"),
+    ("31.58.9.4", "6077"),
+    ("104.164.49.38", "7693"),
+]
+
+
+def _get_proxy() -> Optional[dict]:
+    if not _PROXY_USER or not _PROXY_PASS:
+        return None
+    host, port = random.choice(_PROXY_LIST)
+    proxy_url = f"http://{_PROXY_USER}:{_PROXY_PASS}@{host}:{port}"
+    return {"http": proxy_url, "https": proxy_url}
+
+
+def _get_headers() -> dict:
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept-Language": "en-AU,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
 
 def _get_page(url: str, session: requests.Session) -> Optional[BeautifulSoup]:
+    proxies = _get_proxy()
+    headers = _get_headers()
     try:
-        resp = session.get(url, headers=HEADERS, timeout=15)
+        resp = session.get(url, headers=headers, proxies=proxies, timeout=20)
         if resp.status_code == 503:
-            logger.warning("Amazon は一時的にブロックしています (503). 少し待ってリトライします...")
-            time.sleep(10)
-            resp = session.get(url, headers=HEADERS, timeout=15)
+            logger.warning("Amazon は一時的にブロックしています (503). プロキシを変えてリトライします...")
+            time.sleep(5)
+            proxies = _get_proxy()
+            resp = session.get(url, headers=_get_headers(), proxies=proxies, timeout=20)
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "lxml")
     except requests.RequestException as e:
