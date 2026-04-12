@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, List, Tuple
 from sp_api.api import ListingsItems, Products
 from sp_api.base import Marketplaces, SellingApiException
 import config
@@ -206,6 +206,54 @@ def update_quantity(sku: str, quantity: int) -> Tuple[bool, str]:
     except SellingApiException as e:
         logger.error("[amazon_au] 在庫更新エラー (SKU %s): %s", sku, e)
         return False, str(e)
+
+
+def get_au_prices(asins: List[str]) -> Dict[str, float]:
+    """
+    AU SP-API（Products）を使って複数ASINの現在価格を一括取得する。
+    1回のリクエストで最大20件。
+
+    Returns:
+        {asin: price_aud} の辞書（価格が取れなかったASINは含まれない）
+    """
+    result: Dict[str, float] = {}
+    # 20件ずつバッチ処理
+    for i in range(0, len(asins), 20):
+        batch = asins[i:i + 20]
+        try:
+            api = Products(
+                credentials=_CREDENTIALS,
+                marketplace=Marketplaces.AU,
+            )
+            resp = api.get_competitive_pricing_for_asins(batch)
+            items = resp.payload if isinstance(resp.payload, list) else []
+            for item in items:
+                asin = item.get("ASIN", "")
+                status = item.get("status", "")
+                if status != "Success":
+                    continue
+                product = item.get("Product", {})
+                # CompetitivePricing -> CompetitivePrices -> Price -> LandedPrice
+                comp = product.get("CompetitivePricing", {})
+                prices = comp.get("CompetitivePrices", [])
+                for p in prices:
+                    if p.get("condition") == "New" and p.get("belongsToRequester") is False:
+                        amount = p.get("Price", {}).get("LandedPrice", {}).get("Amount")
+                        if amount:
+                            result[asin] = float(amount)
+                            break
+                # 上記で取れなかった場合は任意の最初の価格
+                if asin not in result:
+                    for p in prices:
+                        amount = p.get("Price", {}).get("LandedPrice", {}).get("Amount")
+                        if amount:
+                            result[asin] = float(amount)
+                            break
+        except Exception as e:
+            logger.error("[amazon_au] 価格取得エラー (batch %d): %s", i // 20 + 1, e)
+
+    logger.info("[amazon_au] AU価格取得: %d件/%d件", len(result), len(asins))
+    return result
 
 
 def check_connection() -> bool:
