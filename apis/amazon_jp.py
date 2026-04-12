@@ -14,8 +14,8 @@ _CREDENTIALS = {
     "lwa_client_secret": config.AMAZON_JP_CREDENTIALS["lwa_client_secret"],
 }
 
-# CatalogItems v2022-04-01 のレート制限: 2 req/s（バースト5）
-_REQUEST_INTERVAL = 0.6  # 秒
+# Products/competitivePrice API のレート制限: 0.5 req/s（バースト1）
+_REQUEST_INTERVAL = 2.1  # 秒
 
 
 def get_jp_product(asin: str) -> Optional[Dict]:
