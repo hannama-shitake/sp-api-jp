@@ -1,11 +1,13 @@
 """
-出品中の全商品について JP 価格を確認し、AU 出品価格を自動更新するスクリプト。
+出品中の全商品について JP 価格・AU 競合価格を確認し、AU 出品価格を自動更新するスクリプト。
 DBに依存せず、Reports APIでリアルタイムに自分の出品一覧を取得する。
 
-ロジック:
-  - JP在庫あり + 利益率OK → AU価格を最適価格に更新
-  - JP在庫あり + 利益率NG → 在庫0にして出品停止
-  - JP在庫なし             → 在庫0にして出品停止
+価格決定ロジック:
+  1. JP在庫なし                    → 在庫0で停止
+  2. JP在庫あり + AU競合価格あり
+       競合価格 >= 最低利益ライン   → 競合価格で出品（利益最大化）
+       競合価格 <  最低利益ライン   → 在庫0で停止（赤字回避）
+  3. JP在庫あり + AU競合価格なし   → 最低利益ラインで出品
 """
 import csv
 import gzip
@@ -35,7 +37,8 @@ _JP_CREDS = {
     "lwa_client_secret": config.AMAZON_JP_CREDENTIALS["lwa_client_secret"],
 }
 
-_JP_INTERVAL = 2.1   # Products API: 0.5 req/s
+_JP_INTERVAL = 2.1   # Products API JP: 0.5 req/s
+_AU_PRICE_INTERVAL = 2.1  # Products API AU: 0.5 req/s
 _AU_INTERVAL = 0.3   # ListingsItems: 5 req/s
 
 
@@ -135,10 +138,52 @@ def get_jp_prices_bulk(asins: list) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 3. AU 価格更新 / 停止
+# 3. AU 競合価格一括取得
 # ─────────────────────────────────────────────
 
-def update_au_prices(listings: list, jp_prices: dict, exchange_rate: float, seller_id: str):
+def get_au_competitor_prices_bulk(asins: list) -> dict:
+    """20件バッチで AU 競合価格 {asin: price_aud} を返す（自分以外の最安値）"""
+    api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+    result = {}
+    batch_size = 20
+    total = len(asins)
+
+    for i in range(0, total, batch_size):
+        batch = asins[i : i + batch_size]
+        if i % 200 == 0:
+            logger.info("[price_update] AU競合価格取得中: %d/%d", i, total)
+        try:
+            resp = api.get_competitive_pricing_for_asins(batch)
+            items = resp.payload if isinstance(resp.payload, list) else []
+            for item in items:
+                asin = item.get("ASIN", "")
+                comp_prices = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("CompetitivePrices", [])
+                )
+                for cp in comp_prices:
+                    if cp.get("condition") == "New":
+                        # belongsToRequester=True は自分の出品なのでスキップ
+                        if cp.get("belongsToRequester"):
+                            continue
+                        amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
+                        if amount:
+                            result[asin] = float(amount)
+                        break
+        except SellingApiException as e:
+            logger.warning("[price_update] AU価格バッチエラー (%s...): %s", batch[0], e)
+        time.sleep(_AU_PRICE_INTERVAL)
+
+    logger.info("[price_update] AU競合価格取得完了: %d件中%d件取得", total, len(result))
+    return result
+
+
+# ─────────────────────────────────────────────
+# 4. AU 価格更新 / 停止
+# ─────────────────────────────────────────────
+
+def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exchange_rate: float, seller_id: str):
     """JP価格をもとに AU 出品価格を更新 or 停止する"""
     api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
 
@@ -161,33 +206,42 @@ def update_au_prices(listings: list, jp_prices: dict, exchange_rate: float, sell
             time.sleep(_AU_INTERVAL)
             continue
 
-        # 利益計算
-        # AU販売価格はJP仕入から最適価格を算出（最低利益確保ライン）
-        optimal_price = calc_optimal_au_price(jp_price)
+        # 最低利益ライン（赤字にならない最安値）
+        min_price = calc_optimal_au_price(jp_price)
+
+        # AU競合価格があればそれを使う、なければ最低利益ラインで出品
+        comp_price = au_comp_prices.get(asin)
+        if comp_price:
+            if comp_price < min_price:
+                # 競合が安すぎて利益出ない → 停止
+                try:
+                    _set_quantity(api, seller_id, sku, 0)
+                    paused += 1
+                    logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → 停止",
+                                asin, comp_price, min_price)
+                except Exception as e:
+                    logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                    failed += 1
+                time.sleep(_AU_INTERVAL)
+                continue
+            final_price = comp_price  # 競合と同額で出品（利益最大化）
+        else:
+            final_price = min_price   # 競合なし → 最低利益ラインで出品
+
+        # 利益確認ログ
         result = calc_profit(
             asin=asin, title="", jp_price_jpy=jp_price,
-            au_price_aud=optimal_price, exchange_rate=exchange_rate,
+            au_price_aud=final_price, exchange_rate=exchange_rate,
         )
-
-        if not result.is_profitable:
-            # 利益率不足 → 停止
-            try:
-                _set_quantity(api, seller_id, sku, 0)
-                paused += 1
-                logger.info("[price_update] %s: 利益率%.1f%% → 停止", asin, result.profit_rate)
-            except Exception as e:
-                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
-                failed += 1
-        else:
-            # 価格更新 + 在庫1に設定
-            try:
-                _put_price_and_quantity(api, seller_id, sku, optimal_price)
-                updated += 1
-                logger.debug("[price_update] %s: JP¥%d → AU$%.2f (%.1f%%)",
-                             asin, jp_price, optimal_price, result.profit_rate)
-            except Exception as e:
-                logger.warning("[price_update] %s: 価格更新失敗 - %s", asin, e)
-                failed += 1
+        try:
+            _put_price_and_quantity(api, seller_id, sku, final_price)
+            updated += 1
+            logger.debug("[price_update] %s: JP¥%d → AU$%.2f (粗利率%.1f%%, 競合$%s)",
+                         asin, jp_price, final_price, result.profit_rate,
+                         f"{comp_price:.2f}" if comp_price else "なし")
+        except Exception as e:
+            logger.warning("[price_update] %s: 価格更新失敗 - %s", asin, e)
+            failed += 1
 
         time.sleep(_AU_INTERVAL)
 
@@ -263,14 +317,17 @@ def main():
         logger.info("[price_update] 出品なし。終了")
         return
 
-    # 2. JP価格一括取得
+    # 2. JP価格・AU競合価格を並列取得（順番に実行）
     asins = [l["asin"] for l in listings]
-    eta = len(asins) / 20 * _JP_INTERVAL / 60
-    logger.info("[price_update] JP価格確認: %d件（約%.0f分）", len(asins), eta)
+    eta = len(asins) / 20 * (_JP_INTERVAL + _AU_PRICE_INTERVAL) / 60
+    logger.info("[price_update] JP価格確認: %d件（約%.0f分）", len(asins), len(asins) / 20 * _JP_INTERVAL / 60)
     jp_prices = get_jp_prices_bulk(asins)
 
+    logger.info("[price_update] AU競合価格確認: %d件（約%.0f分）", len(asins), len(asins) / 20 * _AU_PRICE_INTERVAL / 60)
+    au_comp_prices = get_au_competitor_prices_bulk(asins)
+
     # 3. AU価格更新
-    update_au_prices(listings, jp_prices, exchange_rate, seller_id)
+    update_au_prices(listings, jp_prices, au_comp_prices, exchange_rate, seller_id)
 
 
 if __name__ == "__main__":
