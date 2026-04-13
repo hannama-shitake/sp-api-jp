@@ -27,6 +27,7 @@ from apis.exchange_rate import get_jpy_to_aud
 from db.database import get_connection
 import config
 from utils.logger import get_logger
+from utils.notify import notify_monitor_summary, notify_profitable, notify_error
 
 logger = get_logger(__name__)
 console = Console()
@@ -126,12 +127,21 @@ def cmd_list(args):
     profitable = match_and_research(products, dry_run=dry_run)
     if not profitable:
         console.print(f"[yellow]利益商品なし[/yellow]")
+        notify_monitor_summary(scraped=len(products), profitable=0, listed=0)
         return
 
     result = list_profitable_products(profitable, dry_run=dry_run)
     console.print(
         f"\n出品結果: [green]成功 {result['success']}件[/green] / "
         f"スキップ {result['skipped']}件 / [red]失敗 {result['failed']}件[/red]"
+    )
+    exchange_rate = get_jpy_to_aud()
+    notify_profitable(profitable, exchange_rate)
+    notify_monitor_summary(
+        scraped=len(products),
+        profitable=len(profitable),
+        listed=result["success"],
+        errors=result["failed"],
     )
 
 

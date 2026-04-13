@@ -23,6 +23,7 @@ import config
 from apis.exchange_rate import get_jpy_to_aud
 from modules.profit_calc import calc_optimal_au_price, calc_profit
 from utils.logger import get_logger
+from utils.notify import notify_price_update_summary
 
 logger = get_logger(__name__)
 
@@ -327,7 +328,8 @@ def main():
     au_comp_prices = get_au_competitor_prices_bulk(asins)
 
     # 3. AU価格更新
-    update_au_prices(listings, jp_prices, au_comp_prices, exchange_rate, seller_id)
+    updated, paused, failed = update_au_prices(listings, jp_prices, au_comp_prices, exchange_rate, seller_id)
+    notify_price_update_summary(updated, paused, failed)
 
 
 if __name__ == "__main__":
