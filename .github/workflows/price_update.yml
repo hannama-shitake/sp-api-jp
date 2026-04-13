@@ -31,3 +31,4 @@ jobs:
           AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
           AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
           MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
+        run: python price_update.py
