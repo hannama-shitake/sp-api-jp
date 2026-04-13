@@ -30,9 +30,16 @@ jobs:
           AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
           AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
           AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
-          SELLER_URL: ${{ secrets.SELLER_URL }}
+          SELLER_URLS: ${{ secrets.SELLER_URLS }}
           MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
           PROXY_USER: ${{ secrets.PROXY_USER }}
           PROXY_PASS: ${{ secrets.PROXY_PASS }}
         run: |
-          python main.py list --url "$SELLER_URL"
+          # SELLER_URLS はカンマ区切りで複数URL対応
+          # 例: "https://www.amazon.com.au/s?me=AAA...,https://www.amazon.com.au/s?me=BBB..."
+          IFS=',' read -ra URLS <<< "$SELLER_URLS"
+          for url in "${URLS[@]}"; do
+            url=$(echo "$url" | xargs)  # 前後の空白を除去
+            echo "===== セラー監視: $url ====="
+            python main.py list --url "$url"
+          done
