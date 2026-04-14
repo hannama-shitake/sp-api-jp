@@ -42,8 +42,9 @@ SHEET_ID   = (os.getenv("SPREADSHEET_ID") or "").strip()
 # 何日前までのメールを対象にするか
 DAYS_BACK = int(os.getenv("GMAIL_DAYS_BACK", "3"))
 
-# スプレッドシートのシート名
-SHEET_NAME = os.getenv("SHEET_NAME", "2026")
+# スプレッドシートのシート名（未指定なら当月タブ: 例 "4月"）
+_now_jst = datetime.now(timezone(timedelta(hours=9)))
+SHEET_NAME = os.getenv("SHEET_NAME") or f"{_now_jst.month}月"
 
 # 列定義（1始まり）
 COL = {
