@@ -1,0 +1,34 @@
+name: Gmail → Sheets Sync
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # 3時間ごと
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Gmail → Sheets sync
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          GMAIL_DAYS_BACK: "3"
+          AU_FEE_RATE: "0.15"
+          DHL_SHIPPING_JPY: "4500"
+        run: python gmail_sheets_sync.py
