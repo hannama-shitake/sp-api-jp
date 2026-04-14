@@ -1,0 +1,43 @@
+name: Reactivate Listing
+
+on:
+  workflow_dispatch:
+    inputs:
+      asins:
+        description: '再出品するASIN（カンマ区切り例: B072863VKR,B0D69JFQKH）'
+        required: true
+        default: 'B072863VKR'
+
+jobs:
+  reactivate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Reactivate listing
+        env:
+          AMAZON_JP_REFRESH_TOKEN: ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
+          AMAZON_JP_LWA_CLIENT_ID: ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
+          AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
+          AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
+          DHL_SHIPPING_JPY: "2500"
+          AU_FEE_RATE: "0.15"
+          REACTIVATE_ASINS: ${{ github.event.inputs.asins }}
+        run: python reactivate_listing.py
