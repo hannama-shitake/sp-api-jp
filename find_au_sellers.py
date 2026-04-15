@@ -46,34 +46,30 @@ TOP_ASINS = [
 
 
 def find_sellers_for_asins(asins: list) -> Counter:
-    """ASINリストからAU出品セラーIDを収集"""
+    """ASINリストからAU出品セラーIDをget_item_offersで収集"""
     api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
     seller_counter = Counter()
     seller_asins = {}  # seller_id → [asins]
 
-    for i in range(0, len(asins), 20):
-        batch = asins[i:i + 20]
+    for asin in asins:
         try:
-            resp = api.get_competitive_pricing_for_asins(batch)
-            items = resp.payload if isinstance(resp.payload, list) else []
-            for item in items:
-                asin = item.get("ASIN", "")
-                comp_prices = (
-                    item.get("Product", {})
-                    .get("CompetitivePricing", {})
-                    .get("CompetitivePrices", [])
-                )
-                for cp in comp_prices:
-                    seller_id = cp.get("sellerId", "")
-                    belongs = cp.get("belongsToRequester", False)
-                    if seller_id and not belongs:
-                        seller_counter[seller_id] += 1
-                        if seller_id not in seller_asins:
-                            seller_asins[seller_id] = []
+            resp = api.get_item_offers(asin, ItemCondition="New")
+            payload = resp.payload if hasattr(resp, "payload") else {}
+            offers = payload.get("Offers", [])
+            for offer in offers:
+                seller_id = offer.get("SellerId", "")
+                is_mine = offer.get("IsBuyBoxWinner", False)
+                # 自分のセラーIDは除外
+                my_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
+                if seller_id and seller_id != my_id:
+                    seller_counter[seller_id] += 1
+                    if seller_id not in seller_asins:
+                        seller_asins[seller_id] = []
+                    if asin not in seller_asins[seller_id]:
                         seller_asins[seller_id].append(asin)
         except SellingApiException as e:
-            logger.warning("バッチエラー: %s", e)
-        time.sleep(2.1)
+            logger.warning("get_item_offers エラー %s: %s", asin, e)
+        time.sleep(0.5)
 
     return seller_counter, seller_asins
 
