@@ -53,7 +53,7 @@ def find_sellers_for_asins(asins: list) -> Counter:
 
     for asin in asins:
         try:
-            resp = api.get_item_offers(asin, ItemCondition="New")
+            resp = api.get_item_offers(asin, item_condition="New")
             payload = resp.payload if hasattr(resp, "payload") else {}
             offers = payload.get("Offers", [])
             for offer in offers:
