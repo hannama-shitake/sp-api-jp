@@ -89,10 +89,20 @@ def get_my_au_listings() -> list:
         asin = row.get("asin1", "").strip()
         sku = row.get("seller-sku", "").strip()
         item_status = row.get("status", "").strip().lower()
+        price_str = row.get("price", "").strip()
+        try:
+            current_price_aud = float(price_str) if price_str else None
+        except ValueError:
+            current_price_aud = None
         # 削除済みは除外、停止中(inactive)も対象に含める
         if asin and len(asin) == 10 and sku and asin not in seen and item_status != "deleted":
             seen.add(asin)
-            listings.append({"asin": asin, "sku": sku, "status": item_status})
+            listings.append({
+                "asin": asin,
+                "sku": sku,
+                "status": item_status,
+                "current_price_aud": current_price_aud,
+            })
             if item_status == "active":
                 active_count += 1
             else:
@@ -226,7 +236,7 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
         # 最低利益ライン（赤字にならない最安値）
         min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
 
-        # AU競合価格があればそれを使う、なければ最低利益ラインで出品
+        # AU競合価格があればそれを使う、なければ現在価格を維持（下げない）
         comp_price = au_comp_prices.get(asin)
         if comp_price:
             if comp_price < min_price:
@@ -241,9 +251,18 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                     failed += 1
                 time.sleep(_AU_INTERVAL)
                 continue
-            final_price = comp_price  # 競合と同額で出品（利益最大化）
+            final_price = comp_price  # 競合と同額で出品
         else:
-            final_price = min_price   # 競合なし → 最低利益ラインで出品
+            # ★ 競合なし: 現在価格が最低ラインより高ければ維持（独占状態の利益を守る）
+            current_price = float(listing.get("current_price_aud") or 0)
+            if current_price >= min_price:
+                final_price = current_price
+                logger.debug("[price_update] %s: 競合なし → 現在価格維持 AU$%.2f",
+                             asin, final_price)
+            else:
+                final_price = min_price   # 未設定 or 安すぎ → 最低ラインで出品
+                logger.debug("[price_update] %s: 競合なし → 最低ライン AU$%.2f",
+                             asin, final_price)
 
         # 利益確認ログ
         result = calc_profit(

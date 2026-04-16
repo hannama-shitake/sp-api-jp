@@ -1,0 +1,484 @@
+"""
+停止中（inactive）の全出品を一括チェックし、条件を満たすものを再出品するスクリプト。
+
+再出品ロジック:
+  1. JP在庫なし                         → スキップ（停止のまま）
+  2. JP在庫あり + AU競合価格あり
+       競合価格 >= 最低利益ライン        → 競合価格で再出品
+       競合価格 <  最低利益ライン        → スキップ（赤字回避）
+  3. JP在庫あり + AU競合価格なし        → 最低利益ラインで再出品
+
+使い方:
+  python bulk_reactivate.py              # 実際に再出品
+  python bulk_reactivate.py --dry-run   # テスト実行（PATCHしない）
+"""
+import csv
+import gzip
+import io
+import os
+import sys
+import time
+import argparse
+
+import requests as _requests
+from sp_api.api import Reports, Products, ListingsItems
+from sp_api.base import Marketplaces, SellingApiException
+
+import config
+from apis.exchange_rate import get_jpy_to_aud
+from modules.profit_calc import calc_optimal_au_price, calc_profit
+from utils.logger import get_logger
+from utils.notify import send_email
+
+logger = get_logger(__name__)
+
+MARKETPLACE_AU = config.MARKETPLACE_AU
+
+_AU_CREDS = {
+    "refresh_token": config.AMAZON_AU_CREDENTIALS["refresh_token"],
+    "lwa_app_id": config.AMAZON_AU_CREDENTIALS["lwa_app_id"],
+    "lwa_client_secret": config.AMAZON_AU_CREDENTIALS["lwa_client_secret"],
+}
+_JP_CREDS = {
+    "refresh_token": config.AMAZON_JP_CREDENTIALS["refresh_token"],
+    "lwa_app_id": config.AMAZON_JP_CREDENTIALS["lwa_app_id"],
+    "lwa_client_secret": config.AMAZON_JP_CREDENTIALS["lwa_client_secret"],
+}
+
+JP_INTERVAL = 2.1         # Products API JP: 0.5 req/s
+AU_PRICE_INTERVAL = 2.1   # Products API AU: 0.5 req/s
+AU_PATCH_INTERVAL = 0.3   # ListingsItems: 5 req/s
+
+
+# ─────────────────────────────────────────────
+# 1. AU 出品一覧取得（active + inactive、deleted除外）
+# ─────────────────────────────────────────────
+
+def get_my_au_listings() -> list:
+    """
+    Reports API で自分の AU 出品一覧（停止中含む、削除済み除外）を取得する。
+    各要素: {asin, sku, status, price, title}
+    """
+    api = Reports(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+
+    logger.info("[bulk_reactivate] 出品レポートをリクエスト中...")
+    resp = api.create_report(reportType="GET_MERCHANT_LISTINGS_ALL_DATA")
+    report_id = resp.payload["reportId"]
+    logger.info("[bulk_reactivate] レポートID: %s", report_id)
+
+    for attempt in range(120):
+        time.sleep(10)
+        status_resp = api.get_report(report_id)
+        status = status_resp.payload.get("processingStatus", "")
+        if attempt % 6 == 0:
+            logger.info("[bulk_reactivate] レポートステータス: %s (%d/120)", status, attempt + 1)
+        if status == "DONE":
+            break
+        if status in ("FATAL", "CANCELLED"):
+            raise RuntimeError(f"レポート失敗: {status}")
+    else:
+        raise RuntimeError("レポートタイムアウト（20分）")
+
+    doc_id = status_resp.payload["reportDocumentId"]
+    doc_resp = api.get_report_document(doc_id)
+    url = doc_resp.payload["url"]
+    compression = doc_resp.payload.get("compressionAlgorithm", "")
+
+    r = _requests.get(url, timeout=60)
+    r.raise_for_status()
+    content = gzip.decompress(r.content) if compression == "GZIP" else r.content
+
+    text = content.decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+
+    listings = []
+    seen = set()
+    active_count = inactive_count = 0
+    for row in reader:
+        asin = row.get("asin1", "").strip()
+        sku = row.get("seller-sku", "").strip()
+        item_status = row.get("status", "").strip().lower()
+        title = row.get("item-name", "").strip()
+        price = row.get("price", "").strip()
+        # 削除済みは除外
+        if asin and len(asin) == 10 and sku and asin not in seen and item_status != "deleted":
+            seen.add(asin)
+            listings.append({
+                "asin": asin,
+                "sku": sku,
+                "status": item_status,
+                "price": price,
+                "title": title,
+            })
+            if item_status == "active":
+                active_count += 1
+            else:
+                inactive_count += 1
+
+    logger.info(
+        "[bulk_reactivate] 出品取得完了: %d件（active=%d, inactive=%d）",
+        len(listings), active_count, inactive_count,
+    )
+    return listings
+
+
+# ─────────────────────────────────────────────
+# 2. JP 価格一括取得
+# ─────────────────────────────────────────────
+
+def get_jp_prices_bulk(asins: list) -> dict:
+    """20件バッチで JP 価格 {asin: (price_jpy, in_stock)} を返す"""
+    api = Products(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
+    result = {}
+    batch_size = 20
+    total = len(asins)
+
+    for i in range(0, total, batch_size):
+        batch = asins[i: i + batch_size]
+        if i % 200 == 0:
+            logger.info("[bulk_reactivate] JP価格取得中: %d/%d", i, total)
+        try:
+            resp = api.get_competitive_pricing_for_asins(batch)
+            items = resp.payload if isinstance(resp.payload, list) else []
+            for item in items:
+                asin = item.get("ASIN", "")
+                comp_prices = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("CompetitivePrices", [])
+                )
+                price_jpy = None
+                in_stock = False
+                for cp in comp_prices:
+                    if cp.get("condition") == "New":
+                        amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
+                        if amount:
+                            price_jpy = int(float(amount))
+                            in_stock = True
+                        break
+                result[asin] = (price_jpy, in_stock)
+        except SellingApiException as e:
+            logger.warning("[bulk_reactivate] JP価格バッチエラー (%s...): %s", batch[0], e)
+        time.sleep(JP_INTERVAL)
+
+    logger.info("[bulk_reactivate] JP価格取得完了: %d件中%d件取得", total, len(result))
+    return result
+
+
+# ─────────────────────────────────────────────
+# 3. AU 競合価格一括取得
+# ─────────────────────────────────────────────
+
+def get_au_competitor_prices_bulk(asins: list) -> dict:
+    """20件バッチで AU 競合価格 {asin: price_aud} を返す（自分以外の最安値）"""
+    api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+    result = {}
+    batch_size = 20
+    total = len(asins)
+
+    for i in range(0, total, batch_size):
+        batch = asins[i: i + batch_size]
+        if i % 200 == 0:
+            logger.info("[bulk_reactivate] AU競合価格取得中: %d/%d", i, total)
+        try:
+            resp = api.get_competitive_pricing_for_asins(batch)
+            items = resp.payload if isinstance(resp.payload, list) else []
+            for item in items:
+                asin = item.get("ASIN", "")
+                comp_prices = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("CompetitivePrices", [])
+                )
+                for cp in comp_prices:
+                    if cp.get("condition") == "New":
+                        # belongsToRequester=True は自分の出品なのでスキップ
+                        if cp.get("belongsToRequester"):
+                            continue
+                        amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
+                        if amount:
+                            result[asin] = float(amount)
+                        break
+        except SellingApiException as e:
+            logger.warning("[bulk_reactivate] AU競合価格バッチエラー (%s...): %s", batch[0], e)
+        time.sleep(AU_PRICE_INTERVAL)
+
+    logger.info("[bulk_reactivate] AU競合価格取得完了: %d件中%d件取得", total, len(result))
+    return result
+
+
+# ─────────────────────────────────────────────
+# 4. PATCH で再出品
+# ─────────────────────────────────────────────
+
+def _patch_reactivate(api, seller_id: str, sku: str, price_aud: float):
+    """
+    patch_listings_item で qty=1 + 価格を設定して再出品する。
+    PUT（put_listings_item）ではなく PATCH を使うことで inactive な出品にも適用可能。
+    """
+    body = {
+        "productType": "PRODUCT",
+        "patches": [
+            {
+                "op": "replace",
+                "path": "/attributes/fulfillment_availability",
+                "value": [{
+                    "fulfillment_channel_code": "DEFAULT",
+                    "quantity": 1,
+                    "marketplace_id": MARKETPLACE_AU,
+                }],
+            },
+            {
+                "op": "replace",
+                "path": "/attributes/purchasable_offer",
+                "value": [{
+                    "currency": "AUD",
+                    "our_price": [{"schedule": [{"value_with_tax": price_aud}]}],
+                    "marketplace_id": MARKETPLACE_AU,
+                }],
+            },
+        ],
+    }
+    api.patch_listings_item(
+        sellerId=seller_id,
+        sku=sku,
+        marketplaceIds=[MARKETPLACE_AU],
+        body=body,
+    )
+
+
+# ─────────────────────────────────────────────
+# 5. 一括再出品メイン処理
+# ─────────────────────────────────────────────
+
+def bulk_reactivate(inactive_listings: list, jp_prices: dict, au_comp_prices: dict,
+                    exchange_rate: float, seller_id: str, dry_run: bool = False):
+    """
+    停止中（inactive）の出品を一括チェックし、条件を満たすものを再出品する。
+
+    Returns:
+        (reactivated_details, skipped_no_stock, skipped_unprofitable, failed_count)
+        reactivated_details: list of {asin, title, jp_price, au_price, profit_rate}
+    """
+    api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+
+    reactivated_details = []
+    skipped_no_stock = 0
+    skipped_unprofitable = 0
+    failed_count = 0
+
+    for listing in inactive_listings:
+        asin = listing["asin"]
+        sku = listing["sku"]
+        title = listing.get("title", "")[:50]
+
+        jp_price, in_stock = jp_prices.get(asin, (None, False))
+
+        # JP在庫なし → スキップ（停止のまま）
+        if not in_stock or not jp_price:
+            logger.debug("[bulk_reactivate] %s: JP在庫なし → スキップ", asin)
+            skipped_no_stock += 1
+            continue
+
+        # 最低利益ライン（赤字にならない最安値）
+        min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
+
+        # AU競合価格があればそれを使う、なければ最低利益ラインで出品
+        comp_price = au_comp_prices.get(asin)
+        if comp_price is not None:
+            if comp_price < min_price:
+                # 競合が安すぎて利益出ない → スキップ
+                logger.info(
+                    "[bulk_reactivate] %s: 競合AU$%.2f < 最低ライン$%.2f → スキップ（赤字）",
+                    asin, comp_price, min_price,
+                )
+                skipped_unprofitable += 1
+                continue
+            final_price = comp_price  # 競合と同額で出品（利益最大化）
+        else:
+            final_price = min_price   # 競合なし → 最低利益ラインで出品
+
+        # 利益計算
+        result = calc_profit(
+            asin=asin,
+            title=title,
+            jp_price_jpy=jp_price,
+            au_price_aud=final_price,
+            exchange_rate=exchange_rate,
+        )
+
+        if dry_run:
+            logger.info(
+                "[bulk_reactivate][DRY-RUN] %s: 再出品予定 JP¥%d → AU$%.2f "
+                "(粗利率%.1f%%, 競合$%s)",
+                asin, jp_price, final_price, result.profit_rate,
+                f"{comp_price:.2f}" if comp_price is not None else "なし",
+            )
+            reactivated_details.append({
+                "asin": asin,
+                "title": title,
+                "jp_price": jp_price,
+                "au_price": final_price,
+                "profit_rate": result.profit_rate,
+            })
+            time.sleep(AU_PATCH_INTERVAL)
+            continue
+
+        try:
+            _patch_reactivate(api, seller_id, sku, final_price)
+            logger.info(
+                "[bulk_reactivate] %s: 再出品完了 JP¥%d → AU$%.2f "
+                "(粗利率%.1f%%, 競合$%s)",
+                asin, jp_price, final_price, result.profit_rate,
+                f"{comp_price:.2f}" if comp_price is not None else "なし",
+            )
+            reactivated_details.append({
+                "asin": asin,
+                "title": title,
+                "jp_price": jp_price,
+                "au_price": final_price,
+                "profit_rate": result.profit_rate,
+            })
+        except Exception as e:
+            logger.warning("[bulk_reactivate] %s: 再出品失敗 - %s", asin, e)
+            failed_count += 1
+
+        time.sleep(AU_PATCH_INTERVAL)
+
+    logger.info(
+        "[bulk_reactivate] 完了: 再出品 %d件 / JP在庫なしスキップ %d件 "
+        "/ 赤字スキップ %d件 / 失敗 %d件",
+        len(reactivated_details), skipped_no_stock, skipped_unprofitable, failed_count,
+    )
+    return reactivated_details, skipped_no_stock, skipped_unprofitable, failed_count
+
+
+# ─────────────────────────────────────────────
+# 6. メール通知
+# ─────────────────────────────────────────────
+
+def build_email(inactive_total: int, reactivated_details: list,
+                skipped_no_stock: int, skipped_unprofitable: int,
+                failed_count: int, dry_run: bool = False) -> tuple:
+    """メール件名と本文を生成する"""
+    success_count = len(reactivated_details)
+    skipped_total = skipped_no_stock + skipped_unprofitable
+    dry_run_label = "[DRY-RUN] " if dry_run else ""
+
+    subject = (
+        f"[SP-API] {dry_run_label}一括再出品: "
+        f"{success_count}件成功 / {skipped_total}件対象外 / {failed_count}件失敗"
+    )
+
+    lines = [
+        f"=== {dry_run_label}一括再出品 結果サマリー ===",
+        "",
+        f"停止中チェック対象: {inactive_total}件",
+        f"再出品{'予定' if dry_run else '完了'}: {success_count}件",
+        f"スキップ（JP在庫なし）: {skipped_no_stock}件",
+        f"スキップ（利益不足）: {skipped_unprofitable}件",
+        f"失敗: {failed_count}件",
+        "",
+    ]
+
+    if reactivated_details:
+        lines.append(f"--- 再出品{'予定' if dry_run else '完了'}リスト ({success_count}件) ---")
+        for item in reactivated_details:
+            lines.append(
+                f"  {item['asin']}  JP¥{item['jp_price']:,} → AU${item['au_price']:.2f}"
+                f"  粗利率{item['profit_rate']:.1f}%"
+                f"  {item['title'][:40]}"
+            )
+        lines.append("")
+
+    body = "\n".join(lines)
+    return subject, body
+
+
+# ─────────────────────────────────────────────
+# main
+# ─────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="停止中の AU 出品を一括チェックし、条件を満たすものを再出品する"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="実際にPATCHせず、再出品対象の確認のみ行う",
+    )
+    args = parser.parse_args()
+
+    seller_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "").strip()
+    if not seller_id:
+        seller_id = os.getenv("AMAZON_AU_SELLER_ID", "").strip()
+    if not seller_id:
+        logger.error("[bulk_reactivate] AMAZON_AU_SELLER_ID が設定されていません")
+        sys.exit(1)
+
+    if args.dry_run:
+        logger.info("[bulk_reactivate] *** DRY-RUN モード: 実際の更新は行いません ***")
+
+    exchange_rate = get_jpy_to_aud()
+    logger.info("[bulk_reactivate] 為替レート: 1 JPY = %.6f AUD", exchange_rate)
+
+    # 1. 全出品取得（active + inactive、deleted除外）
+    all_listings = get_my_au_listings()
+    if not all_listings:
+        logger.info("[bulk_reactivate] 出品なし。終了")
+        return
+
+    # 2. active / inactive に分離
+    active_listings = [l for l in all_listings if l["status"] == "active"]
+    inactive_listings = [l for l in all_listings if l["status"] != "active"]
+
+    logger.info(
+        "[bulk_reactivate] active: %d件 / inactive: %d件",
+        len(active_listings), len(inactive_listings),
+    )
+
+    if not inactive_listings:
+        logger.info("[bulk_reactivate] 停止中の出品なし。終了")
+        return
+
+    # 3. inactive のみを対象に JP価格・AU競合価格を取得
+    inactive_asins = [l["asin"] for l in inactive_listings]
+
+    logger.info(
+        "[bulk_reactivate] JP価格確認: %d件（約%.0f分）",
+        len(inactive_asins), len(inactive_asins) / 20 * JP_INTERVAL / 60,
+    )
+    jp_prices = get_jp_prices_bulk(inactive_asins)
+
+    logger.info(
+        "[bulk_reactivate] AU競合価格確認: %d件（約%.0f分）",
+        len(inactive_asins), len(inactive_asins) / 20 * AU_PRICE_INTERVAL / 60,
+    )
+    au_comp_prices = get_au_competitor_prices_bulk(inactive_asins)
+
+    # 4. 一括再出品
+    reactivated_details, skipped_no_stock, skipped_unprofitable, failed_count = bulk_reactivate(
+        inactive_listings=inactive_listings,
+        jp_prices=jp_prices,
+        au_comp_prices=au_comp_prices,
+        exchange_rate=exchange_rate,
+        seller_id=seller_id,
+        dry_run=args.dry_run,
+    )
+
+    # 5. メール送信
+    subject, body = build_email(
+        inactive_total=len(inactive_listings),
+        reactivated_details=reactivated_details,
+        skipped_no_stock=skipped_no_stock,
+        skipped_unprofitable=skipped_unprofitable,
+        failed_count=failed_count,
+        dry_run=args.dry_run,
+    )
+    send_email(subject=subject, body=body)
+    print(body)
+
+
+if __name__ == "__main__":
+    main()
