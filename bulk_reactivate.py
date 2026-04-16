@@ -2,15 +2,18 @@
 停止中（inactive）の全出品を一括チェックし、条件を満たすものを再出品するスクリプト。
 
 再出品ロジック:
-  1. JP在庫なし                         → スキップ（停止のまま）
-  2. JP在庫あり + AU競合価格あり
-       競合価格 >= 最低利益ライン        → 競合価格で再出品
-       競合価格 <  最低利益ライン        → スキップ（赤字回避）
-  3. JP在庫あり + AU競合価格なし        → 最低利益ラインで再出品
+  1. JP在庫なし                              → スキップ（停止のまま）
+  2. AU競合セラー数 < min_sellers (デフォルト3) → スキップ（需要未実証）
+  3. JP在庫あり + 競合セラー数 >= min_sellers
+       競合最安値 >= 最低利益ライン           → 競合最安値で再出品
+       競合最安値 <  最低利益ライン           → スキップ（赤字回避）
+
+★ セラー3人以上＝需要が実証されている商品のみ再出品
 
 使い方:
-  python bulk_reactivate.py              # 実際に再出品
-  python bulk_reactivate.py --dry-run   # テスト実行（PATCHしない）
+  python bulk_reactivate.py                      # 実際に再出品（min-sellers=3）
+  python bulk_reactivate.py --dry-run            # テスト実行（PATCHしない）
+  python bulk_reactivate.py --min-sellers 2      # セラー2人以上に緩和
 """
 import csv
 import gzip
@@ -166,11 +169,14 @@ def get_jp_prices_bulk(asins: list) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 3. AU 競合価格一括取得
+# 3a. AU 競合価格バッチ取得（事前フィルタ用）
 # ─────────────────────────────────────────────
 
 def get_au_competitor_prices_bulk(asins: list) -> dict:
-    """20件バッチで AU 競合価格 {asin: price_aud} を返す（自分以外の最安値）"""
+    """
+    20件バッチで AU 競合価格 {asin: price_aud} を返す（事前フィルタ用）。
+    ここで価格が取れたASINのみ次のステップでセラー数チェックを行う。
+    """
     api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
     result = {}
     batch_size = 20
@@ -192,7 +198,6 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
                 )
                 for cp in comp_prices:
                     if cp.get("condition") == "New":
-                        # belongsToRequester=True は自分の出品なのでスキップ
                         if cp.get("belongsToRequester"):
                             continue
                         amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
@@ -204,6 +209,54 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
         time.sleep(AU_PRICE_INTERVAL)
 
     logger.info("[bulk_reactivate] AU競合価格取得完了: %d件中%d件取得", total, len(result))
+    return result
+
+
+# ─────────────────────────────────────────────
+# 3b. AU セラー数カウント（get_item_offers）
+# ─────────────────────────────────────────────
+
+def get_au_seller_counts(asins: list) -> dict:
+    """
+    get_item_offers で各 ASIN の AU 競合セラー数と最安値を返す。
+    {asin: {"seller_count": int, "min_price": float or None}}
+
+    事前フィルタ通過済みの候補のみ呼び出すこと（1 ASIN = 1 API コール）。
+    Rate limit: 0.5 req/s → 2.1s 間隔
+    """
+    api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+    result = {}
+    my_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
+    total = len(asins)
+
+    for i, asin in enumerate(asins):
+        if i % 50 == 0:
+            logger.info("[bulk_reactivate] セラー数確認中: %d/%d", i, total)
+        try:
+            resp = api.get_item_offers(asin, item_condition="New")
+            payload = resp.payload if hasattr(resp, "payload") else {}
+            offers = payload.get("Offers", [])
+
+            competitor_offers = [
+                o for o in offers
+                if o.get("SellerId", "") != my_id
+                and o.get("ListingPrice", {}).get("Amount")
+            ]
+            seller_count = len(competitor_offers)
+            if competitor_offers:
+                prices = [float(o["ListingPrice"]["Amount"]) for o in competitor_offers]
+                min_price = min(prices)
+            else:
+                min_price = None
+
+            result[asin] = {"seller_count": seller_count, "min_price": min_price}
+        except SellingApiException as e:
+            logger.warning("[bulk_reactivate] get_item_offers エラー %s: %s", asin, e)
+            result[asin] = {"seller_count": 0, "min_price": None}
+        time.sleep(AU_PRICE_INTERVAL)
+
+    logger.info("[bulk_reactivate] セラー数確認完了: %d件 (3人以上: %d件)",
+                total, sum(1 for v in result.values() if v["seller_count"] >= 3))
     return result
 
 
@@ -251,19 +304,22 @@ def _patch_reactivate(api, seller_id: str, sku: str, price_aud: float):
 # 5. 一括再出品メイン処理
 # ─────────────────────────────────────────────
 
-def bulk_reactivate(inactive_listings: list, jp_prices: dict, au_comp_prices: dict,
-                    exchange_rate: float, seller_id: str, dry_run: bool = False):
+def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dict,
+                    exchange_rate: float, seller_id: str,
+                    min_sellers: int = 3, dry_run: bool = False):
     """
     停止中（inactive）の出品を一括チェックし、条件を満たすものを再出品する。
 
+    ★ セラー数 >= min_sellers の商品のみ再出品（需要実証フィルタ）
+
     Returns:
-        (reactivated_details, skipped_no_stock, skipped_unprofitable, failed_count)
-        reactivated_details: list of {asin, title, jp_price, au_price, profit_rate}
+        (reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, failed_count)
     """
     api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
 
     reactivated_details = []
     skipped_no_stock = 0
+    skipped_few_sellers = 0
     skipped_unprofitable = 0
     failed_count = 0
 
@@ -274,70 +330,62 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, au_comp_prices: di
 
         jp_price, in_stock = jp_prices.get(asin, (None, False))
 
-        # JP在庫なし → スキップ（停止のまま）
+        # JP在庫なし → スキップ
         if not in_stock or not jp_price:
-            logger.debug("[bulk_reactivate] %s: JP在庫なし → スキップ", asin)
             skipped_no_stock += 1
             continue
 
-        # 最低利益ライン（赤字にならない最安値）
-        min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
+        # 最低利益ライン
+        min_line = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
 
-        # AU競合価格があればそれを使う、なければ最低利益ラインで出品
-        comp_price = au_comp_prices.get(asin)
-        if comp_price is not None:
-            if comp_price < min_price:
-                # 競合が安すぎて利益出ない → スキップ
-                logger.info(
-                    "[bulk_reactivate] %s: 競合AU$%.2f < 最低ライン$%.2f → スキップ（赤字）",
-                    asin, comp_price, min_price,
-                )
-                skipped_unprofitable += 1
-                continue
-            final_price = comp_price  # 競合と同額で出品（利益最大化）
-        else:
-            final_price = min_price   # 競合なし → 最低利益ラインで出品
+        # セラー数チェック（seller_counts に含まれない = 競合なし = スキップ）
+        offer_info = seller_counts.get(asin)
+        if not offer_info or offer_info["seller_count"] < min_sellers:
+            count = offer_info["seller_count"] if offer_info else 0
+            logger.debug("[bulk_reactivate] %s: 競合セラー%d人 < %d人 → スキップ",
+                         asin, count, min_sellers)
+            skipped_few_sellers += 1
+            continue
 
-        # 利益計算
+        # 競合最安値が最低利益ラインを下回る → スキップ
+        comp_price = offer_info["min_price"]
+        if comp_price is None or comp_price < min_line:
+            logger.info(
+                "[bulk_reactivate] %s: 競合AU$%s < 最低ライン$%.2f → スキップ（赤字）",
+                asin, f"{comp_price:.2f}" if comp_price else "?", min_line,
+            )
+            skipped_unprofitable += 1
+            continue
+
+        final_price = comp_price
+
+        # 利益計算ログ
         result = calc_profit(
-            asin=asin,
-            title=title,
-            jp_price_jpy=jp_price,
-            au_price_aud=final_price,
+            asin=asin, title=title,
+            jp_price_jpy=jp_price, au_price_aud=final_price,
             exchange_rate=exchange_rate,
         )
 
+        seller_count = offer_info["seller_count"]
+        log_msg = (f"{asin}: JP¥{jp_price:,} → AU${final_price:.2f} "
+                   f"(粗利率{result.profit_rate:.1f}%, 競合{seller_count}人)")
+
         if dry_run:
-            logger.info(
-                "[bulk_reactivate][DRY-RUN] %s: 再出品予定 JP¥%d → AU$%.2f "
-                "(粗利率%.1f%%, 競合$%s)",
-                asin, jp_price, final_price, result.profit_rate,
-                f"{comp_price:.2f}" if comp_price is not None else "なし",
-            )
+            logger.info("[bulk_reactivate][DRY-RUN] 再出品予定 %s", log_msg)
             reactivated_details.append({
-                "asin": asin,
-                "title": title,
-                "jp_price": jp_price,
-                "au_price": final_price,
-                "profit_rate": result.profit_rate,
+                "asin": asin, "title": title, "jp_price": jp_price,
+                "au_price": final_price, "profit_rate": result.profit_rate,
+                "seller_count": seller_count,
             })
-            time.sleep(AU_PATCH_INTERVAL)
             continue
 
         try:
             _patch_reactivate(api, seller_id, sku, final_price)
-            logger.info(
-                "[bulk_reactivate] %s: 再出品完了 JP¥%d → AU$%.2f "
-                "(粗利率%.1f%%, 競合$%s)",
-                asin, jp_price, final_price, result.profit_rate,
-                f"{comp_price:.2f}" if comp_price is not None else "なし",
-            )
+            logger.info("[bulk_reactivate] 再出品完了 %s", log_msg)
             reactivated_details.append({
-                "asin": asin,
-                "title": title,
-                "jp_price": jp_price,
-                "au_price": final_price,
-                "profit_rate": result.profit_rate,
+                "asin": asin, "title": title, "jp_price": jp_price,
+                "au_price": final_price, "profit_rate": result.profit_rate,
+                "seller_count": seller_count,
             })
         except Exception as e:
             logger.warning("[bulk_reactivate] %s: 再出品失敗 - %s", asin, e)
@@ -346,11 +394,12 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, au_comp_prices: di
         time.sleep(AU_PATCH_INTERVAL)
 
     logger.info(
-        "[bulk_reactivate] 完了: 再出品 %d件 / JP在庫なしスキップ %d件 "
-        "/ 赤字スキップ %d件 / 失敗 %d件",
-        len(reactivated_details), skipped_no_stock, skipped_unprofitable, failed_count,
+        "[bulk_reactivate] 完了: 再出品 %d件 / JP在庫なし %d件 "
+        "/ セラー不足 %d件 / 赤字 %d件 / 失敗 %d件",
+        len(reactivated_details), skipped_no_stock,
+        skipped_few_sellers, skipped_unprofitable, failed_count,
     )
-    return reactivated_details, skipped_no_stock, skipped_unprofitable, failed_count
+    return reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, failed_count
 
 
 # ─────────────────────────────────────────────
@@ -358,26 +407,27 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, au_comp_prices: di
 # ─────────────────────────────────────────────
 
 def build_email(inactive_total: int, reactivated_details: list,
-                skipped_no_stock: int, skipped_unprofitable: int,
-                failed_count: int, dry_run: bool = False) -> tuple:
+                skipped_no_stock: int, skipped_few_sellers: int,
+                skipped_unprofitable: int, failed_count: int,
+                min_sellers: int = 3, dry_run: bool = False) -> tuple:
     """メール件名と本文を生成する"""
     success_count = len(reactivated_details)
-    skipped_total = skipped_no_stock + skipped_unprofitable
     dry_run_label = "[DRY-RUN] " if dry_run else ""
 
     subject = (
         f"[SP-API] {dry_run_label}一括再出品: "
-        f"{success_count}件成功 / {skipped_total}件対象外 / {failed_count}件失敗"
+        f"{success_count}件成功 / {failed_count}件失敗"
     )
 
     lines = [
-        f"=== {dry_run_label}一括再出品 結果サマリー ===",
+        f"=== {dry_run_label}一括再出品 結果サマリー (競合{min_sellers}人以上) ===",
         "",
-        f"停止中チェック対象: {inactive_total}件",
-        f"再出品{'予定' if dry_run else '完了'}: {success_count}件",
-        f"スキップ（JP在庫なし）: {skipped_no_stock}件",
-        f"スキップ（利益不足）: {skipped_unprofitable}件",
-        f"失敗: {failed_count}件",
+        f"停止中チェック対象:              {inactive_total}件",
+        f"再出品{'予定' if dry_run else '完了'}:                      {success_count}件",
+        f"スキップ（JP在庫なし）:          {skipped_no_stock}件",
+        f"スキップ（競合{min_sellers}人未満）:         {skipped_few_sellers}件",
+        f"スキップ（利益不足）:            {skipped_unprofitable}件",
+        f"失敗:                          {failed_count}件",
         "",
     ]
 
@@ -387,7 +437,8 @@ def build_email(inactive_total: int, reactivated_details: list,
             lines.append(
                 f"  {item['asin']}  JP¥{item['jp_price']:,} → AU${item['au_price']:.2f}"
                 f"  粗利率{item['profit_rate']:.1f}%"
-                f"  {item['title'][:40]}"
+                f"  競合{item.get('seller_count', '?')}人"
+                f"  {item['title'][:35]}"
             )
         lines.append("")
 
@@ -401,12 +452,15 @@ def build_email(inactive_total: int, reactivated_details: list,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="停止中の AU 出品を一括チェックし、条件を満たすものを再出品する"
+        description="停止中の AU 出品を一括チェックし、競合セラーN人以上の商品を再出品する"
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
+        "--dry-run", action="store_true",
         help="実際にPATCHせず、再出品対象の確認のみ行う",
+    )
+    parser.add_argument(
+        "--min-sellers", type=int, default=3,
+        help="再出品に必要な最小競合セラー数（デフォルト: 3）",
     )
     args = parser.parse_args()
 
@@ -418,7 +472,8 @@ def main():
         sys.exit(1)
 
     if args.dry_run:
-        logger.info("[bulk_reactivate] *** DRY-RUN モード: 実際の更新は行いません ***")
+        logger.info("[bulk_reactivate] *** DRY-RUN モード ***")
+    logger.info("[bulk_reactivate] 競合セラー最小数: %d人", args.min_sellers)
 
     exchange_rate = get_jpy_to_aud()
     logger.info("[bulk_reactivate] 為替レート: 1 JPY = %.6f AUD", exchange_rate)
@@ -430,50 +485,75 @@ def main():
         return
 
     # 2. active / inactive に分離
-    active_listings = [l for l in all_listings if l["status"] == "active"]
     inactive_listings = [l for l in all_listings if l["status"] != "active"]
-
-    logger.info(
-        "[bulk_reactivate] active: %d件 / inactive: %d件",
-        len(active_listings), len(inactive_listings),
-    )
+    logger.info("[bulk_reactivate] active: %d件 / inactive: %d件",
+                len(all_listings) - len(inactive_listings), len(inactive_listings))
 
     if not inactive_listings:
         logger.info("[bulk_reactivate] 停止中の出品なし。終了")
         return
 
-    # 3. inactive のみを対象に JP価格・AU競合価格を取得
     inactive_asins = [l["asin"] for l in inactive_listings]
 
-    logger.info(
-        "[bulk_reactivate] JP価格確認: %d件（約%.0f分）",
-        len(inactive_asins), len(inactive_asins) / 20 * JP_INTERVAL / 60,
-    )
+    # 3. JP価格一括取得（バッチ）
+    logger.info("[bulk_reactivate] JP価格確認: %d件（約%.0f分）",
+                len(inactive_asins), len(inactive_asins) / 20 * JP_INTERVAL / 60)
     jp_prices = get_jp_prices_bulk(inactive_asins)
 
-    logger.info(
-        "[bulk_reactivate] AU競合価格確認: %d件（約%.0f分）",
-        len(inactive_asins), len(inactive_asins) / 20 * AU_PRICE_INTERVAL / 60,
-    )
-    au_comp_prices = get_au_competitor_prices_bulk(inactive_asins)
+    # 4. JP在庫ありのASINだけ次のステップへ（API節約）
+    asins_with_stock = [
+        a for a in inactive_asins
+        if jp_prices.get(a, (None, False))[1]
+    ]
+    logger.info("[bulk_reactivate] JP在庫あり: %d件 / なし: %d件",
+                len(asins_with_stock), len(inactive_asins) - len(asins_with_stock))
 
-    # 4. 一括再出品
-    reactivated_details, skipped_no_stock, skipped_unprofitable, failed_count = bulk_reactivate(
+    if not asins_with_stock:
+        logger.info("[bulk_reactivate] 在庫あり商品なし。終了")
+        return
+
+    # 5. AU競合価格バッチ取得（事前フィルタ：競合ありのASINを特定）
+    logger.info("[bulk_reactivate] AU競合価格確認: %d件（約%.0f分）",
+                len(asins_with_stock), len(asins_with_stock) / 20 * AU_PRICE_INTERVAL / 60)
+    au_comp_prices_bulk = get_au_competitor_prices_bulk(asins_with_stock)
+
+    # 競合価格が最低ライン以上のASINのみ item_offers でセラー数を確認
+    candidates = []
+    for asin in asins_with_stock:
+        jp_price, _ = jp_prices.get(asin, (None, False))
+        if not jp_price:
+            continue
+        min_line = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
+        comp_price = au_comp_prices_bulk.get(asin)
+        if comp_price and comp_price >= min_line:
+            candidates.append(asin)
+
+    logger.info("[bulk_reactivate] セラー数確認候補: %d件（約%.0f分）",
+                len(candidates), len(candidates) * AU_PRICE_INTERVAL / 60)
+
+    # 6. get_item_offers でセラー数と実際の最安値を確認
+    seller_counts = get_au_seller_counts(candidates)
+
+    # 7. 一括再出品
+    reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, failed_count = bulk_reactivate(
         inactive_listings=inactive_listings,
         jp_prices=jp_prices,
-        au_comp_prices=au_comp_prices,
+        seller_counts=seller_counts,
         exchange_rate=exchange_rate,
         seller_id=seller_id,
+        min_sellers=args.min_sellers,
         dry_run=args.dry_run,
     )
 
-    # 5. メール送信
+    # 8. メール送信
     subject, body = build_email(
         inactive_total=len(inactive_listings),
         reactivated_details=reactivated_details,
         skipped_no_stock=skipped_no_stock,
+        skipped_few_sellers=skipped_few_sellers,
         skipped_unprofitable=skipped_unprofitable,
         failed_count=failed_count,
+        min_sellers=args.min_sellers,
         dry_run=args.dry_run,
     )
     send_email(subject=subject, body=body)
