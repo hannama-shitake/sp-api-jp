@@ -114,14 +114,15 @@ def calc_profit(
     )
 
 
-def calc_optimal_au_price(jp_price_jpy: int, target_profit_rate: float = None) -> float:
+def calc_optimal_au_price(jp_price_jpy: int, target_profit_rate: float = None, exchange_rate: float = None) -> float:
     """
     JP仕入値から、目標粗利率を達成するための最適 AU 出品価格を計算する。
+    exchange_rate を渡すと get_jpy_to_aud() の呼び出しを省略できる（ループ内で使う場合に推奨）。
     """
     if target_profit_rate is None:
         target_profit_rate = config.MIN_PROFIT_RATE
 
-    rate = get_jpy_to_aud()
+    rate = exchange_rate if exchange_rate else get_jpy_to_aud()
     intl_shipping_jpy = config.INTL_SHIPPING_JPY
     required_revenue_jpy = jp_price_jpy * (1 + target_profit_rate / 100) + intl_shipping_jpy
     required_net_aud = required_revenue_jpy * rate
