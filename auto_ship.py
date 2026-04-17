@@ -15,7 +15,7 @@ Amazon AU の未出荷(Unshipped)注文を Ship&co で DHL 出荷 → 追跡番�
 import argparse
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sp_api.api import Orders
 from sp_api.base import Marketplaces, SellingApiException
@@ -45,10 +45,15 @@ def get_unshipped_orders() -> list:
     next_token = None
 
     while True:
+        # 直近30日分（未出荷注文は通常数日以内だが余裕を持って30日）
+        created_after = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         kwargs = {
             "MarketplaceIds":      [config.MARKETPLACE_AU],
             "OrderStatuses":       ["Unshipped"],
             "FulfillmentChannels": ["MFN"],
+            "CreatedAfter":        created_after,
         }
         if next_token:
             kwargs["NextToken"] = next_token
