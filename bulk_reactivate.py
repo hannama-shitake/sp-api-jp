@@ -330,9 +330,16 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dic
         sku = listing["sku"]
         title = listing.get("title", "")[:50]
 
-        jp_price, in_stock = jp_prices.get(asin, (None, False))
+        jp_data = jp_prices.get(asin)
 
-        # JP在庫なし → スキップ
+        # JP価格データ自体がない（APIバッチ未取得）→ スキップ
+        if jp_data is None:
+            skipped_no_stock += 1
+            continue
+
+        jp_price, in_stock = jp_data
+
+        # JP競合価格なし → 再出品しない（在庫確認できず）
         if not in_stock or not jp_price:
             skipped_no_stock += 1
             continue
