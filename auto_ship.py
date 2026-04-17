@@ -298,8 +298,9 @@ def main():
 
         if amazon_ok or args.test_label:
             label_status = "（テスト）" if args.test_label else ""
-            logger.info("[auto_ship] 完了%s: %s | 追跡=%s | 送料¥%d",
-                        label_status, log_base, tracking, fee_jpy)
+            carrier_name = result.get("carrier_name", "")
+            logger.info("[auto_ship] 完了%s: %s | %s 追跡=%s | 送料¥%d",
+                        label_status, log_base, carrier_name, tracking, fee_jpy)
             details.append({
                 "order_id":    order_id,
                 "buyer":       buyer_name,

@@ -75,14 +75,27 @@ def get_dhl_carrier_id() -> Optional[str]:
     return None
 
 
-def find_dhl_from_rates(to_address: dict, products: list, weight_g: int) -> Optional[dict]:
+def select_carrier_from_rates(
+    to_address: dict,
+    products: list,
+    weight_g: int,
+    max_dhl_jpy: int = None,
+) -> Optional[dict]:
     """
-    POST /v1/rates でDHLのレート情報（carrier_id + service）を取得する。
-    Ship&co 共通DHL はこちら経由で利用可能。
-    Returns: {"carrier_id": str, "service": str, "price": int} or None
+    POST /v1/rates で全キャリアのレートを取得し、最適キャリアを選択する。
+
+    選択ロジック:
+      1. DHLレート ≤ max_dhl_jpy → DHL を使用
+      2. DHLレート > max_dhl_jpy  → eパケットライト（Japan Post）に切り替え
+      3. どちらも取れない          → 最安値キャリアを使用
+
+    Returns: {"carrier_id": str, "service": str, "price": int, "carrier_name": str}
     """
+    if max_dhl_jpy is None:
+        max_dhl_jpy = config.SHIPCO_MAX_DHL_JPY
+
     payload = {
-        "setup": {"shipment_date": date.today().isoformat()},
+        "setup":        {"shipment_date": date.today().isoformat()},
         "from_address": _from_address(),
         "to_address":   to_address,
         "products":     products,
@@ -93,22 +106,55 @@ def find_dhl_from_rates(to_address: dict, products: list, weight_g: int) -> Opti
         r = requests.post(f"{BASE_URL}/rates", json=payload, headers=_headers(), timeout=30)
         r.raise_for_status()
         rates = r.json()
-        dhl_rates = [
-            rt for rt in rates
-            if "dhl" in (rt.get("carrier") or rt.get("type") or "").lower()
-            and not rt.get("errors")
-        ]
-        if dhl_rates:
-            best = min(dhl_rates, key=lambda x: x.get("price", 9999999))
-            logger.info("[shipco] DHLレート取得: service=%s price=¥%d",
-                        best.get("service"), best.get("price", 0))
+
+        # エラーなしのレートのみ対象
+        valid = [rt for rt in rates if not rt.get("errors") and rt.get("price")]
+        logger.info("[shipco] 有効レート: %s",
+                    [(rt.get("carrier"), rt.get("service"), rt.get("price")) for rt in valid])
+
+        def _pick(keyword: str) -> Optional[dict]:
+            matched = [rt for rt in valid
+                       if keyword in (rt.get("carrier") or "").lower()
+                       or keyword in (rt.get("service") or "").lower()]
+            return min(matched, key=lambda x: x["price"]) if matched else None
+
+        dhl = _pick("dhl")
+
+        # DHLが¥5,000以下 → DHL確定
+        if dhl and dhl["price"] <= max_dhl_jpy:
+            logger.info("[shipco] DHL選択: ¥%d (上限¥%d)", dhl["price"], max_dhl_jpy)
             return {
-                "carrier_id": best.get("carrier_id", ""),
-                "service":    best.get("service", ""),
-                "price":      best.get("price", 0),
+                "carrier_id":   dhl.get("carrier_id", ""),
+                "service":      dhl.get("service", ""),
+                "price":        dhl["price"],
+                "carrier_name": "DHL",
             }
-        logger.warning("[shipco] DHLレートなし。全レート: %s",
-                       [(r.get("carrier"), r.get("service")) for r in rates])
+
+        # DHL高すぎ → eパケットライトに切替
+        epacket = _pick("epacket") or _pick("japanpost") or _pick("japan_post")
+        if epacket:
+            reason = f"DHL ¥{dhl['price']:,} > 上限¥{max_dhl_jpy:,}" if dhl else "DHLなし"
+            logger.info("[shipco] eパケットライト選択（%s）: ¥%d", reason, epacket["price"])
+            return {
+                "carrier_id":   epacket.get("carrier_id", ""),
+                "service":      epacket.get("service", ""),
+                "price":        epacket["price"],
+                "carrier_name": "eパケット",
+            }
+
+        # フォールバック: 最安値
+        if valid:
+            cheapest = min(valid, key=lambda x: x["price"])
+            logger.warning("[shipco] DHL/eパケット不可 → 最安値: %s ¥%d",
+                           cheapest.get("carrier"), cheapest["price"])
+            return {
+                "carrier_id":   cheapest.get("carrier_id", ""),
+                "service":      cheapest.get("service", ""),
+                "price":        cheapest["price"],
+                "carrier_name": cheapest.get("carrier", "unknown"),
+            }
+
+        logger.error("[shipco] 利用可能なキャリアなし")
     except Exception as e:
         logger.warning("[shipco] レート取得失敗: %s", e)
     return None
@@ -187,29 +233,21 @@ def create_shipment(
         logger.error("[shipco] SHIPCO_API_TOKEN が未設定")
         return None
 
-    # 1. まず登録キャリアからDHLを探す
-    carrier_id = get_dhl_carrier_id()
-
-    # 2. 見つからなければ rates 経由でShip&co共通DHLを取得
-    dhl_service = service
-    if not carrier_id:
-        rate = find_dhl_from_rates(to_address, products, weight_g)
-        if rate:
-            carrier_id  = rate["carrier_id"]
-            dhl_service = rate["service"]
-        else:
-            logger.error("[shipco] DHL が利用できません")
-            return None
+    # rates から最適キャリア（DHL or eパケット）を自動選択
+    rate = select_carrier_from_rates(to_address, products, weight_g)
+    if not rate:
+        logger.error("[shipco] 利用可能なキャリアなし: order=%s", order_id)
+        return None
 
     setup: dict = {
         "ref_number":    order_id,
         "shipment_date": date.today().isoformat(),
         "test":          test,
     }
-    if carrier_id:
-        setup["carrier_id"] = carrier_id
-    if dhl_service:
-        setup["service"] = dhl_service
+    if rate.get("carrier_id"):
+        setup["carrier_id"] = rate["carrier_id"]
+    if rate.get("service") or service:
+        setup["service"] = rate.get("service") or service
 
     payload = {
         "setup":        setup,
@@ -242,6 +280,7 @@ def create_shipment(
             "tracking_number": tracking_numbers[0],
             "label_url":       delivery.get("label", ""),
             "fee_jpy":         int(resp.get("setup", {}).get("shipping_fee", 0)),
+            "carrier_name":    rate.get("carrier_name", ""),
         }
         logger.info("[shipco] 出荷作成完了: order=%s 追跡=%s ラベル=%s 送料¥%d",
                     order_id, result["tracking_number"],
