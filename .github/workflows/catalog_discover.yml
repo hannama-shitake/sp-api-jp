@@ -1,0 +1,72 @@
+name: Catalog Discover
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'DRY RUN（確認のみ、実際には出品しない）'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      max_new:
+        description: '新規出品上限件数'
+        required: false
+        default: '300'
+      min_sellers:
+        description: '競合セラー最小数'
+        required: false
+        default: '3'
+      pages_per_kw:
+        description: 'キーワードあたり検索ページ数'
+        required: false
+        default: '5'
+  schedule:
+    - cron: '0 18 * * 1'  # 毎週月曜 03:00 JST
+
+jobs:
+  catalog-discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Discover and list new ASINs from JP catalog
+        env:
+          AMAZON_JP_REFRESH_TOKEN: ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
+          AMAZON_JP_LWA_CLIENT_ID: ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
+          AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
+          AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
+          DHL_SHIPPING_JPY: "2500"
+          AU_FEE_RATE: "0.15"
+          HANDLING_TIME_DAYS: "2"
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          MAX="${{ github.event.inputs.max_new }}"
+          MIN_S="${{ github.event.inputs.min_sellers }}"
+          PAGES="${{ github.event.inputs.pages_per_kw }}"
+          python catalog_discover.py $ARGS \
+            --max-new "${MAX:-300}" \
+            --min-sellers "${MIN_S:-3}" \
+            --pages-per-kw "${PAGES:-5}"

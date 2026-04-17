@@ -278,6 +278,7 @@ def _patch_reactivate(api, seller_id: str, sku: str, price_aud: float):
                 "value": [{
                     "fulfillment_channel_code": "DEFAULT",
                     "quantity": 1,
+                    "lead_time_to_ship_max_days": config.HANDLING_TIME_DAYS,
                     "marketplace_id": MARKETPLACE_AU,
                 }],
             },

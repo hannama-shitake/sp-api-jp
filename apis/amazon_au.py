@@ -54,6 +54,7 @@ def list_item_fbm(asin: str, price_aud: float, quantity: int = 1) -> Tuple[bool,
                     {
                         "fulfillment_channel_code": "DEFAULT",
                         "quantity": quantity,
+                        "lead_time_to_ship_max_days": config.HANDLING_TIME_DAYS,
                         "marketplace_id": config.MARKETPLACE_AU,
                     }
                 ],

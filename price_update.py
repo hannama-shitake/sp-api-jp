@@ -304,6 +304,7 @@ def _set_quantity(api, seller_id, sku, quantity):
             "value": [{
                 "fulfillment_channel_code": "DEFAULT",
                 "quantity": quantity,
+                "lead_time_to_ship_max_days": config.HANDLING_TIME_DAYS,
                 "marketplace_id": config.MARKETPLACE_AU,
             }],
         }],
@@ -329,6 +330,7 @@ def _patch_price_and_quantity(api, seller_id, sku, price_aud):
                 "value": [{
                     "fulfillment_channel_code": "DEFAULT",
                     "quantity": 1,
+                    "lead_time_to_ship_max_days": config.HANDLING_TIME_DAYS,
                     "marketplace_id": config.MARKETPLACE_AU,
                 }],
             },
