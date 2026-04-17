@@ -51,26 +51,44 @@ def get_carriers() -> list:
     return r.json()
 
 
-def _get_dhl_carrier_id() -> Optional[str]:
-    """Ship&co に登録されている DHL の carrier_id を自動検索する"""
+def get_best_carrier_id(prefer: str = "dhl") -> Optional[str]:
+    """
+    登録済みキャリアから優先順で carrier_id を返す。
+    prefer="dhl" → dhl > ups > その他の順で選択。
+    """
     global _CARRIER_CACHE
     if _CARRIER_CACHE:
         return _CARRIER_CACHE
     try:
         carriers = get_carriers()
-        logger.info("[shipco] 登録キャリア一覧: %s", carriers)
-        # carrier / name / service / type など複数フィールドを探索
-        for c in carriers:
-            # フィールド値を全部結合して dhl を含むか確認
-            all_values = " ".join(str(v) for v in c.values() if v).lower()
-            if "dhl" in all_values:
-                _CARRIER_CACHE = c.get("id") or c.get("_id") or c.get("carrier_id")
-                logger.info("[shipco] DHL carrier_id: %s (raw: %s)", _CARRIER_CACHE, c)
-                return _CARRIER_CACHE
-        logger.warning("[shipco] DHL キャリアが見つかりません。全キャリア: %s", carriers)
+        active = [c for c in carriers if c.get("state") == "active"]
+        logger.info("[shipco] 登録キャリア: %s",
+                    [(c.get("id"), c.get("type")) for c in active])
+
+        # 優先順: dhl → ups → 先頭のアクティブキャリア
+        priority = [prefer, "ups", "dhl"]
+        for name in priority:
+            for c in active:
+                if name in (c.get("type") or "").lower():
+                    _CARRIER_CACHE = c["id"]
+                    logger.info("[shipco] 使用キャリア: %s (id=%s)",
+                                c.get("type"), _CARRIER_CACHE)
+                    return _CARRIER_CACHE
+
+        # どれも一致しなければ先頭を使う
+        if active:
+            _CARRIER_CACHE = active[0]["id"]
+            logger.warning("[shipco] 優先キャリアなし → %s (id=%s) を使用",
+                           active[0].get("type"), _CARRIER_CACHE)
+            return _CARRIER_CACHE
+
     except Exception as e:
         logger.warning("[shipco] キャリア取得失敗: %s", e)
     return None
+
+
+# 後方互換用エイリアス
+_get_dhl_carrier_id = get_best_carrier_id
 
 
 # ─────────────────────────────────────────────
@@ -88,7 +106,7 @@ def get_rates(
 
     Returns: [{"carrier": str, "service": str, "price": int, ...}, ...]
     """
-    carrier_id = _get_dhl_carrier_id()
+    carrier_id = get_best_carrier_id()
     payload = {
         "setup": {
             "shipment_date": date.today().isoformat(),
@@ -119,7 +137,7 @@ def create_shipment(
     to_address: dict,
     products: list,
     weight_g: int = 980,
-    service: str = "dhl_express_worldwide",
+    service: str = "",  # 空文字 = Ship&co が自動選択（キャリアのデフォルトサービス）
     test: bool = False,
 ) -> Optional[dict]:
     """
@@ -146,19 +164,22 @@ def create_shipment(
         logger.error("[shipco] SHIPCO_API_TOKEN が未設定")
         return None
 
-    carrier_id = _get_dhl_carrier_id()
+    carrier_id = get_best_carrier_id()
     if not carrier_id:
         logger.error("[shipco] DHL carrier_id が取得できませんでした")
         return None
 
+    setup: dict = {
+        "carrier_id":    carrier_id,
+        "ref_number":    order_id,
+        "shipment_date": date.today().isoformat(),
+        "test":          test,
+    }
+    if service:
+        setup["service"] = service
+
     payload = {
-        "setup": {
-            "carrier_id":    carrier_id,
-            "service":       service,
-            "ref_number":    order_id,
-            "shipment_date": date.today().isoformat(),
-            "test":          test,
-        },
+        "setup":        setup,
         "from_address": _from_address(),
         "to_address":   to_address,
         "products":     products,
