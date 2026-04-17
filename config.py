@@ -24,12 +24,13 @@ AMAZON_AU_CREDENTIALS = {
 
 # ── 利益計算パラメータ ────────────────────────────────────────
 MIN_PROFIT_RATE = float(os.getenv("MIN_PROFIT_RATE", "30"))  # 最低粗利率(%)
-INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY", "4500"))  # 国際送料デフォルト(円) DHL想定
-DHL_SHIPPING_JPY = int(os.getenv("DHL_SHIPPING_JPY", "4500"))   # DHL送料(2kg以下)
+INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY", "3800"))  # 国際送料デフォルト(円) DHL想定
+DHL_SHIPPING_JPY = int(os.getenv("DHL_SHIPPING_JPY", "3800"))   # DHL送料(2kg以下)
 EMS_SHIPPING_JPY = int(os.getenv("EMS_SHIPPING_JPY", "2500"))   # EMS/eパケット送料(2kg超)
 DHL_MAX_WEIGHT_KG = float(os.getenv("DHL_MAX_WEIGHT_KG", "2.0"))  # DHLのkg上限
 AU_FEE_RATE = float(os.getenv("AU_FEE_RATE", "0.15"))  # Amazon AU 手数料率
 PRICE_UPDATE_THRESHOLD = float(os.getenv("PRICE_UPDATE_THRESHOLD", "3"))  # 価格変動閾値(%)
+MAX_FAIR_PRICE_RATIO = float(os.getenv("MAX_FAIR_PRICE_RATIO", "3.0"))  # Amazon Fair Pricing Policy: JP基準価格(JPY×rate)の最大倍率
 
 # AU 出品価格の上乗せ係数（粗利確保のためのバッファ）
 PRICE_MARKUP_MULTIPLIER = float(os.getenv("PRICE_MARKUP_MULTIPLIER", "1.0"))
@@ -62,3 +63,14 @@ DB_PATH = os.getenv("DB_PATH", "arbitrage.db")
 
 # ── SKU プレフィックス ────────────────────────────────────────
 SKU_PREFIX = ""
+
+# ── Ship&co 認証・発送元情報 ──────────────────────────────────
+SHIPCO_API_TOKEN    = os.getenv("SHIPCO_API_TOKEN", "")
+SHIPCO_FROM_NAME    = os.getenv("SHIPCO_FROM_NAME", "Yamamoto Takeshi")
+SHIPCO_FROM_COMPANY = os.getenv("SHIPCO_FROM_COMPANY", "IQQOW")
+SHIPCO_FROM_EMAIL   = os.getenv("SHIPCO_FROM_EMAIL", "")
+SHIPCO_FROM_PHONE   = os.getenv("SHIPCO_FROM_PHONE", "")
+SHIPCO_FROM_ZIP     = os.getenv("SHIPCO_FROM_ZIP", "")
+SHIPCO_FROM_PROVINCE= os.getenv("SHIPCO_FROM_PROVINCE", "IBARAKI")
+SHIPCO_FROM_CITY    = os.getenv("SHIPCO_FROM_CITY", "TSUKUBA")
+SHIPCO_FROM_ADDRESS1= os.getenv("SHIPCO_FROM_ADDRESS1", "")

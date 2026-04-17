@@ -264,6 +264,22 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                 logger.debug("[price_update] %s: 競合なし → 最低ライン AU$%.2f",
                              asin, final_price)
 
+        # Amazon Fair Pricing Policy: JP基準価格の MAX_FAIR_PRICE_RATIO 倍を超える価格は設定しない
+        jp_ref_aud = jp_price * exchange_rate
+        if final_price > jp_ref_aud * config.MAX_FAIR_PRICE_RATIO:
+            try:
+                _set_quantity(api, seller_id, sku, 0)
+                paused += 1
+                logger.info(
+                    "[price_update] %s: フェアプライシング上限超過 AU$%.2f > AU$%.2f×%.1f → 停止",
+                    asin, final_price, jp_ref_aud, config.MAX_FAIR_PRICE_RATIO,
+                )
+            except Exception as e:
+                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                failed += 1
+            time.sleep(_AU_INTERVAL)
+            continue
+
         # 利益確認ログ
         result = calc_profit(
             asin=asin, title="", jp_price_jpy=jp_price,

@@ -322,6 +322,7 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dic
     skipped_no_stock = 0
     skipped_few_sellers = 0
     skipped_unprofitable = 0
+    skipped_fair_price = 0
     failed_count = 0
 
     for listing in inactive_listings:
@@ -360,6 +361,16 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dic
 
         final_price = comp_price
 
+        # Amazon Fair Pricing Policy: JP基準価格の MAX_FAIR_PRICE_RATIO 倍を超える価格は出品しない
+        jp_ref_aud = jp_price * exchange_rate
+        if final_price > jp_ref_aud * config.MAX_FAIR_PRICE_RATIO:
+            logger.info(
+                "[bulk_reactivate] %s: フェアプライシング上限超過 AU$%.2f > AU$%.2f×%.1f → スキップ",
+                asin, final_price, jp_ref_aud, config.MAX_FAIR_PRICE_RATIO,
+            )
+            skipped_fair_price += 1
+            continue
+
         # 利益計算ログ
         result = calc_profit(
             asin=asin, title=title,
@@ -396,11 +407,11 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dic
 
     logger.info(
         "[bulk_reactivate] 完了: 再出品 %d件 / JP在庫なし %d件 "
-        "/ セラー不足 %d件 / 赤字 %d件 / 失敗 %d件",
+        "/ セラー不足 %d件 / 赤字 %d件 / 価格上限 %d件 / 失敗 %d件",
         len(reactivated_details), skipped_no_stock,
-        skipped_few_sellers, skipped_unprofitable, failed_count,
+        skipped_few_sellers, skipped_unprofitable, skipped_fair_price, failed_count,
     )
-    return reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, failed_count
+    return reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, skipped_fair_price, failed_count
 
 
 # ─────────────────────────────────────────────
@@ -409,7 +420,8 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dic
 
 def build_email(inactive_total: int, reactivated_details: list,
                 skipped_no_stock: int, skipped_few_sellers: int,
-                skipped_unprofitable: int, failed_count: int,
+                skipped_unprofitable: int, skipped_fair_price: int,
+                failed_count: int,
                 min_sellers: int = 3, dry_run: bool = False) -> tuple:
     """メール件名と本文を生成する"""
     success_count = len(reactivated_details)
@@ -428,6 +440,7 @@ def build_email(inactive_total: int, reactivated_details: list,
         f"スキップ（JP在庫なし）:          {skipped_no_stock}件",
         f"スキップ（競合{min_sellers}人未満）:         {skipped_few_sellers}件",
         f"スキップ（利益不足）:            {skipped_unprofitable}件",
+        f"スキップ（価格上限超過）:        {skipped_fair_price}件",
         f"失敗:                          {failed_count}件",
         "",
     ]
@@ -536,7 +549,7 @@ def main():
     seller_counts = get_au_seller_counts(candidates)
 
     # 7. 一括再出品
-    reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, failed_count = bulk_reactivate(
+    reactivated_details, skipped_no_stock, skipped_few_sellers, skipped_unprofitable, skipped_fair_price, failed_count = bulk_reactivate(
         inactive_listings=inactive_listings,
         jp_prices=jp_prices,
         seller_counts=seller_counts,
@@ -553,6 +566,7 @@ def main():
         skipped_no_stock=skipped_no_stock,
         skipped_few_sellers=skipped_few_sellers,
         skipped_unprofitable=skipped_unprofitable,
+        skipped_fair_price=skipped_fair_price,
         failed_count=failed_count,
         min_sellers=args.min_sellers,
         dry_run=args.dry_run,

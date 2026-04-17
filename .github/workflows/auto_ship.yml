@@ -1,0 +1,67 @@
+name: Auto Ship (Ship&co DHL)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # 30分ごと（未出荷注文を検知して即出荷）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'DRY RUN（確認のみ、ラベル作成しない）'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      test_label:
+        description: 'Ship&co テストラベル（課金なし・動作確認用）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  auto-ship:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Auto ship unshipped orders via Ship&co DHL
+        env:
+          AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
+          SHIPCO_API_TOKEN: ${{ secrets.SHIPCO_API_TOKEN }}
+          SHIPCO_FROM_NAME: ${{ secrets.SHIPCO_FROM_NAME }}
+          SHIPCO_FROM_COMPANY: ${{ secrets.SHIPCO_FROM_COMPANY }}
+          SHIPCO_FROM_EMAIL: ${{ secrets.SHIPCO_FROM_EMAIL }}
+          SHIPCO_FROM_PHONE: ${{ secrets.SHIPCO_FROM_PHONE }}
+          SHIPCO_FROM_ZIP: ${{ secrets.SHIPCO_FROM_ZIP }}
+          SHIPCO_FROM_PROVINCE: ${{ secrets.SHIPCO_FROM_PROVINCE }}
+          SHIPCO_FROM_CITY: ${{ secrets.SHIPCO_FROM_CITY }}
+          SHIPCO_FROM_ADDRESS1: ${{ secrets.SHIPCO_FROM_ADDRESS1 }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          if [ "${{ github.event.inputs.test_label }}" = "true" ]; then
+            ARGS="$ARGS --test-label"
+          fi
+          python auto_ship.py $ARGS

@@ -41,8 +41,9 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
-          DHL_SHIPPING_JPY: "2500"
+          DHL_SHIPPING_JPY: "3800"
           AU_FEE_RATE: "0.15"
+          MAX_FAIR_PRICE_RATIO: "3.0"
         run: |
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             python bulk_reactivate.py --dry-run
