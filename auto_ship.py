@@ -147,8 +147,8 @@ _HS_CODE_MAP = [
       "yugioh", "トレカ"],                                             "4911.99"),
     # カメラ本体
     (["camera", "カメラ", "mirrorless", "dslr", "digital camera"],    "8525.80"),
-    # カメラレンズ
-    (["lens", "レンズ", "objective"],                                  "9002.11"),
+    # カメラレンズ・光学機器
+    (["lens", "レンズ", "objective", "binocular", "telescope"],       "9002.11"),
     # 時計
     (["watch", "seiko", "orient", "casio", "citizen", "時計"],        "9102.12"),
     # 釣り具
@@ -156,13 +156,36 @@ _HS_CODE_MAP = [
     # ナイフ・刃物
     (["knife", "knives", "blade", "包丁"],                            "8211.92"),
     # ゲーム機・コントローラー
-    (["game", "nintendo", "playstation", "xbox", "controller",
-      "ゲーム"],                                                       "9504.50"),
+    (["game console", "nintendo", "playstation", "xbox", "controller",
+      "ゲーム機"],                                                     "9504.50"),
     # 鉄道模型
     (["n scale", "ho scale", "kato", "tomix", "locomotive", "train",
       "鉄道模型"],                                                     "9502.10"),
+    # ヘッドフォン・イヤホン・スピーカー
+    (["headphone", "earphone", "earbuds", "speaker", "ヘッドフォン",
+      "イヤホン", "スピーカー", "audio"],                              "8518.30"),
+    # 本・マンガ・雑誌
+    (["book", "manga", "comic", "novel", "本", "マンガ", "漫画",
+      "雑誌"],                                                         "4901.99"),
+    # 衣類・アパレル（ニット）
+    (["sweater", "hoodie", "knit", "jersey", "ニット", "セーター"],   "6110.20"),
+    # 衣類・アパレル（一般）
+    (["shirt", "jacket", "coat", "pants", "dress", "tshirt", "t-shirt",
+      "シャツ", "ジャケット", "パンツ"],                               "6211.33"),
+    # バッグ・財布
+    (["bag", "wallet", "purse", "backpack", "バッグ", "財布",
+      "リュック"],                                                     "4202.12"),
+    # 健康・美容
+    (["skincare", "cosmetic", "cream", "lotion", "perfume", "makeup",
+      "化粧", "スキンケア", "コスメ"],                                 "3304.99"),
+    # サプリ・健康食品
+    (["supplement", "vitamin", "protein", "サプリ", "ビタミン",
+      "プロテイン"],                                                   "2106.90"),
+    # キッチン用品
+    (["kitchen", "cookware", "pan", "pot", "knife set", "cutlery",
+      "キッチン", "鍋", "フライパン"],                                 "7323.93"),
 ]
-_HS_DEFAULT = "9503.00"  # その他玩具・コレクタブル（デフォルト）
+_HS_DEFAULT = "9503.00"  # 上記に該当しない場合（フィギュア・コレクタブルが主力なのでデフォルト維持）
 
 
 def _get_hs_code(title: str) -> str:
