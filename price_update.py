@@ -138,15 +138,29 @@ def get_jp_prices_bulk(asins: list) -> dict:
                     .get("CompetitivePricing", {})
                     .get("CompetitivePrices", [])
                 )
+                # 競合価格（複数出品者いる場合のみ返る）
                 price_jpy = None
-                in_stock = False
                 for cp in comp_prices:
                     if cp.get("condition") == "New":
                         amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
                         if amount:
                             price_jpy = int(float(amount))
-                            in_stock = True
                         break
+
+                # NumberOfOfferListings で実際の在庫有無を判定
+                # Count > 0 → JP に出品あり（競合価格なしでも在庫あり）
+                # Count = 0 → JP 在庫切れ
+                offer_listings = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("NumberOfOfferListings", [])
+                )
+                new_count = sum(
+                    ol.get("Count", 0) for ol in offer_listings
+                    if (ol.get("condition") or "").lower() in ("new", "new_new")
+                )
+                in_stock = new_count > 0
+
                 result[asin] = (price_jpy, in_stock)
         except SellingApiException as e:
             logger.warning("[price_update] バッチエラー (%s...): %s", batch[0], e)
@@ -228,19 +242,22 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
 
         jp_price, in_stock = jp_data
 
-        # JP競合価格なし（in_stock=False）の処理
-        # ★ get_competitive_pricing_for_asins は競合複数のときのみ価格を返す
-        #   → 競合なし・独占出品・一時品切れでも in_stock=False になる
-        #   → アクティブ出品を誤停止しないようスキップ
-        if not in_stock or not jp_price:
-            if not was_inactive:
-                # アクティブ出品: 誤停止防止のため維持
-                logger.debug("[price_update] %s: JP競合価格なし → アクティブ維持（誤停止防止）", asin)
-                continue
-            else:
-                # インアクティブ: JP在庫確認できないので再出品しない
-                logger.debug("[price_update] %s: JP競合価格なし → インアクティブ維持", asin)
-                continue
+        # JP在庫切れ（NumberOfOfferListings Count=0）→ 停止
+        if not in_stock:
+            try:
+                _set_quantity(api, seller_id, sku, 0)
+                paused += 1
+                logger.info("[price_update] %s: JP在庫切れ(Count=0) → 停止", asin)
+            except Exception as e:
+                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                failed += 1
+            time.sleep(_AU_INTERVAL)
+            continue
+
+        # JP在庫あり・競合価格なし（独占出品）→ 価格更新せずアクティブ維持
+        if not jp_price:
+            logger.debug("[price_update] %s: JP独占出品（競合価格なし）→ 現在価格維持", asin)
+            continue
 
         # 最低利益ライン（赤字にならない最安値）
         min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)

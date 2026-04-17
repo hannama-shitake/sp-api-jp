@@ -151,14 +151,25 @@ def get_jp_prices_bulk(asins: list) -> dict:
                     .get("CompetitivePrices", [])
                 )
                 price_jpy = None
-                in_stock = False
                 for cp in comp_prices:
                     if cp.get("condition") == "New":
                         amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
                         if amount:
                             price_jpy = int(float(amount))
-                            in_stock = True
                         break
+
+                # NumberOfOfferListings で実在庫を判定
+                offer_listings = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("NumberOfOfferListings", [])
+                )
+                new_count = sum(
+                    ol.get("Count", 0) for ol in offer_listings
+                    if (ol.get("condition") or "").lower() in ("new", "new_new")
+                )
+                in_stock = new_count > 0
+
                 result[asin] = (price_jpy, in_stock)
         except SellingApiException as e:
             logger.warning("[bulk_reactivate] JP価格バッチエラー (%s...): %s", batch[0], e)
