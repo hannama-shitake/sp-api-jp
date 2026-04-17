@@ -1,0 +1,73 @@
+name: eBay Cross-List
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'DRY RUN（確認のみ、実際には出品しない）'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      max_new:
+        description: '新規出品上限件数'
+        required: false
+        default: '200'
+      sync_only:
+        description: '価格同期・終了のみ（新規出品なし）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  schedule:
+    - cron: '0 20 * * *'  # 毎日 05:00 JST（価格同期）
+
+jobs:
+  ebay-lister:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: eBay cross-list from Amazon AU
+        env:
+          AMAZON_JP_REFRESH_TOKEN: ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
+          AMAZON_JP_LWA_CLIENT_ID: ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
+          AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
+          AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_DEV_ID: ${{ secrets.EBAY_DEV_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+          EBAY_USER_TOKEN: ${{ secrets.EBAY_USER_TOKEN }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
+          DHL_SHIPPING_JPY: "2500"
+          AU_FEE_RATE: "0.15"
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          if [ "${{ github.event.inputs.sync_only }}" = "true" ]; then
+            ARGS="$ARGS --sync-only"
+          fi
+          MAX="${{ github.event.inputs.max_new }}"
+          python ebay_lister.py $ARGS --max-new "${MAX:-200}"
