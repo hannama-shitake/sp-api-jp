@@ -58,13 +58,16 @@ def _get_dhl_carrier_id() -> Optional[str]:
         return _CARRIER_CACHE
     try:
         carriers = get_carriers()
+        logger.info("[shipco] 登録キャリア一覧: %s", carriers)
+        # carrier / name / service / type など複数フィールドを探索
         for c in carriers:
-            if "dhl" in c.get("carrier", "").lower():
-                _CARRIER_CACHE = c["id"]
-                logger.info("[shipco] DHL carrier_id: %s", _CARRIER_CACHE)
+            # フィールド値を全部結合して dhl を含むか確認
+            all_values = " ".join(str(v) for v in c.values() if v).lower()
+            if "dhl" in all_values:
+                _CARRIER_CACHE = c.get("id") or c.get("_id") or c.get("carrier_id")
+                logger.info("[shipco] DHL carrier_id: %s (raw: %s)", _CARRIER_CACHE, c)
                 return _CARRIER_CACHE
-        logger.warning("[shipco] DHL キャリアが見つかりません。登録キャリア: %s",
-                       [c.get("carrier") for c in carriers])
+        logger.warning("[shipco] DHL キャリアが見つかりません。全キャリア: %s", carriers)
     except Exception as e:
         logger.warning("[shipco] キャリア取得失敗: %s", e)
     return None
