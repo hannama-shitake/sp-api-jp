@@ -133,8 +133,49 @@ def build_shipco_address(order: dict) -> dict:
     }
 
 
+# HSコードマッピング（タイトルキーワード → HSコード）
+# https://www.customs.go.jp/tariff/
+_HS_CODE_MAP = [
+    # フィギュア・人形・おもちゃ
+    (["figuarts", "figma", "nendoroid", "mafex", "revoltech", "pop up parade",
+      "figure", "フィギュア", "doll", "toy", "おもちゃ"],              "9503.00"),
+    # プラモデル・ガンプラ
+    (["gundam", "gunpla", "tamiya", "bandai", "model kit", "plastic model",
+      "プラモ", "hg ", "mg ", "rg ", "pg "],                          "9503.00"),
+    # トレーディングカード
+    (["trading card", "card game", "tcg", "pokemon card", "one piece card",
+      "yugioh", "トレカ"],                                             "4911.99"),
+    # カメラ本体
+    (["camera", "カメラ", "mirrorless", "dslr", "digital camera"],    "8525.80"),
+    # カメラレンズ
+    (["lens", "レンズ", "objective"],                                  "9002.11"),
+    # 時計
+    (["watch", "seiko", "orient", "casio", "citizen", "時計"],        "9102.12"),
+    # 釣り具
+    (["fishing", "rod", "reel", "lure", "釣り", "ダイワ", "shimano"], "9507.30"),
+    # ナイフ・刃物
+    (["knife", "knives", "blade", "包丁"],                            "8211.92"),
+    # ゲーム機・コントローラー
+    (["game", "nintendo", "playstation", "xbox", "controller",
+      "ゲーム"],                                                       "9504.50"),
+    # 鉄道模型
+    (["n scale", "ho scale", "kato", "tomix", "locomotive", "train",
+      "鉄道模型"],                                                     "9502.10"),
+]
+_HS_DEFAULT = "9503.00"  # その他玩具・コレクタブル（デフォルト）
+
+
+def _get_hs_code(title: str) -> str:
+    """タイトルキーワードから HS コードを推定する"""
+    t = title.lower()
+    for keywords, hs in _HS_CODE_MAP:
+        if any(kw in t for kw in keywords):
+            return hs
+    return _HS_DEFAULT
+
+
 def build_shipco_products(items: list) -> list:
-    """注文アイテムを Ship&co customs 申告形式に変換する"""
+    """注文アイテムを Ship&co customs 申告形式に変換する（HSコード付き）"""
     products = []
     for item in items:
         price = int(float(
@@ -142,13 +183,20 @@ def build_shipco_products(items: list) -> list:
             or item.get("ItemTax", {}).get("Amount", 0)
             or 3000
         ))
+        title = item.get("Title", "Japanese goods")
+        hs    = _get_hs_code(title)
         products.append({
-            "name":           item.get("Title", "Japanese goods")[:50],
+            "name":           title[:50],
             "price":          price,
             "quantity":       int(item.get("QuantityOrdered", 1)),
             "origin_country": "JP",
+            "hs_code":        hs,
         })
-    return products or [{"name": "Japanese goods", "price": 3000, "quantity": 1, "origin_country": "JP"}]
+        logger.debug("[auto_ship] 商品: %s | HS=%s | ¥%d", title[:40], hs, price)
+    return products or [{
+        "name": "Japanese goods", "price": 3000, "quantity": 1,
+        "origin_country": "JP", "hs_code": _HS_DEFAULT,
+    }]
 
 
 # ─────────────────────────────────────────────
