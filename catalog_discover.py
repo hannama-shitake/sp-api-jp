@@ -62,24 +62,55 @@ SEARCH_KEYWORDS = [
     "figma",
     "Revoltech",
     "BANDAI figure",
+    "Pop Up Parade",
+    "Ichiban Kuji",
+    "Taito figure",
+    "Furyu figure",
     # ガンプラ・模型
     "MG Gundam",
     "RG Gundam",
     "HG Gundam",
+    "PG Gundam",
     "BANDAI SPIRITS",
+    "HGUC Gundam",
+    "Master Grade Gundam",
+    "TAMIYA model",
+    "Hasegawa model",
     # トレーディングカード
     "One Piece Card Game",
     "Pokemon card Japanese",
     "Digimon card",
-    "Dragon Ball card",
+    "Dragon Ball Super card",
+    "Yu-Gi-Oh Japanese",
+    "Cardfight Vanguard",
     # カメラ・レンズ
-    "Sony mirrorless",
-    "Fujifilm lens",
+    "Sony mirrorless Japan",
+    "Fujifilm lens Japan",
     "Sigma lens Japan",
+    "Tamron lens Japan",
+    "Canon RF lens",
+    "Nikon Z lens",
+    # 時計
+    "Seiko Prospex",
+    "Orient Star watch",
+    "Casio G-Shock Japan",
+    "Seiko Presage",
+    "Citizen Promaster",
+    # 釣り具
+    "Daiwa fishing Japan",
+    "Shimano fishing Japan",
+    "Major Craft rod",
     # ゲーム・ホビー
     "TAMIYA mini 4WD",
-    "Daiwa fishing",
-    "Orient Star watch",
+    "Kyosho RC Japan",
+    "Kotobukiya model",
+    # アウトドア
+    "Snow Peak Japan",
+    "Ogawa tent Japan",
+    # 工具・DIY
+    "Senkichi chisel Japan",
+    "Tsunesaburo plane",
+    "Japanese woodworking tool",
 ]
 
 JP_INTERVAL = 2.1        # Products API JP: 0.5 req/s
@@ -236,15 +267,27 @@ def get_jp_prices_bulk(asins: list) -> dict:
                     .get("CompetitivePricing", {})
                     .get("CompetitivePrices", [])
                 )
+                # 競合価格（複数出品者がいる場合のみ返る）
                 price_jpy = None
-                in_stock = False
                 for cp in comp_prices:
                     if cp.get("condition") == "New":
                         amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
                         if amount:
                             price_jpy = int(float(amount))
-                            in_stock = True
                         break
+
+                # NumberOfOfferListings で実在庫を判定
+                offer_listings = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("NumberOfOfferListings", [])
+                )
+                new_count = sum(
+                    ol.get("Count", 0) for ol in offer_listings
+                    if (ol.get("condition") or "").lower() in ("new", "new_new")
+                )
+                in_stock = new_count > 0
+
                 result[asin] = (price_jpy, in_stock)
         except SellingApiException as e:
             logger.warning("[catalog_discover] JP価格バッチエラー (%s...): %s", batch[0], e)

@@ -24,7 +24,7 @@ on:
         required: false
         default: '5'
   schedule:
-    - cron: '0 18 * * 1'  # 毎週月曜 03:00 JST
+    - cron: '0 16 * * *'  # 毎日 01:00 JST（毎日実行）
 
 jobs:
   catalog-discover:
