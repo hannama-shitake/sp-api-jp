@@ -53,8 +53,8 @@ def get_carriers() -> list:
 
 def get_dhl_carrier_id() -> Optional[str]:
     """
-    Ship&co に登録されている DHL の carrier_id を返す。
-    DHL が未登録の場合は None（Ship&co → 運送会社 → DHL を登録してください）。
+    /v1/carriers から DHL carrier_id を検索する（ユーザー登録キャリア用）。
+    Ship&co 共通DHL（carrier_id 不要）の場合は None を返す。
     """
     global _CARRIER_CACHE
     if _CARRIER_CACHE:
@@ -64,22 +64,54 @@ def get_dhl_carrier_id() -> Optional[str]:
         active = [c for c in carriers if c.get("state") == "active"]
         logger.info("[shipco] 登録キャリア: %s",
                     [(c.get("id"), c.get("type")) for c in active])
-
         for c in active:
             if "dhl" in (c.get("type") or "").lower():
                 _CARRIER_CACHE = c["id"]
-                logger.info("[shipco] DHL carrier_id: %s", _CARRIER_CACHE)
+                logger.info("[shipco] DHL carrier_id（登録済み）: %s", _CARRIER_CACHE)
                 return _CARRIER_CACHE
-
-        logger.error("[shipco] DHL が未登録です。Ship&co → 運送会社 → DHL を追加してください。"
-                     "登録済み: %s", [c.get("type") for c in active])
     except Exception as e:
         logger.warning("[shipco] キャリア取得失敗: %s", e)
+    # Ship&co 共通DHLは carrier_id 不要
     return None
 
 
-# 後方互換用エイリアス
-get_best_carrier_id = get_dhl_carrier_id
+def find_dhl_from_rates(to_address: dict, products: list, weight_g: int) -> Optional[dict]:
+    """
+    POST /v1/rates でDHLのレート情報（carrier_id + service）を取得する。
+    Ship&co 共通DHL はこちら経由で利用可能。
+    Returns: {"carrier_id": str, "service": str, "price": int} or None
+    """
+    payload = {
+        "setup": {"shipment_date": date.today().isoformat()},
+        "from_address": _from_address(),
+        "to_address":   to_address,
+        "products":     products,
+        "parcels":      [{"weight": weight_g, "width": 30, "height": 20, "depth": 10}],
+        "customs":      {"content_type": "MERCHANDISE", "duty_paid": False},
+    }
+    try:
+        r = requests.post(f"{BASE_URL}/rates", json=payload, headers=_headers(), timeout=30)
+        r.raise_for_status()
+        rates = r.json()
+        dhl_rates = [
+            rt for rt in rates
+            if "dhl" in (rt.get("carrier") or rt.get("type") or "").lower()
+            and not rt.get("errors")
+        ]
+        if dhl_rates:
+            best = min(dhl_rates, key=lambda x: x.get("price", 9999999))
+            logger.info("[shipco] DHLレート取得: service=%s price=¥%d",
+                        best.get("service"), best.get("price", 0))
+            return {
+                "carrier_id": best.get("carrier_id", ""),
+                "service":    best.get("service", ""),
+                "price":      best.get("price", 0),
+            }
+        logger.warning("[shipco] DHLレートなし。全レート: %s",
+                       [(r.get("carrier"), r.get("service")) for r in rates])
+    except Exception as e:
+        logger.warning("[shipco] レート取得失敗: %s", e)
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -155,19 +187,29 @@ def create_shipment(
         logger.error("[shipco] SHIPCO_API_TOKEN が未設定")
         return None
 
+    # 1. まず登録キャリアからDHLを探す
     carrier_id = get_dhl_carrier_id()
+
+    # 2. 見つからなければ rates 経由でShip&co共通DHLを取得
+    dhl_service = service
     if not carrier_id:
-        logger.error("[shipco] DHL carrier_id が取得できませんでした")
-        return None
+        rate = find_dhl_from_rates(to_address, products, weight_g)
+        if rate:
+            carrier_id  = rate["carrier_id"]
+            dhl_service = rate["service"]
+        else:
+            logger.error("[shipco] DHL が利用できません")
+            return None
 
     setup: dict = {
-        "carrier_id":    carrier_id,
         "ref_number":    order_id,
         "shipment_date": date.today().isoformat(),
         "test":          test,
     }
-    if service:
-        setup["service"] = service
+    if carrier_id:
+        setup["carrier_id"] = carrier_id
+    if dhl_service:
+        setup["service"] = dhl_service
 
     payload = {
         "setup":        setup,
