@@ -254,9 +254,18 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
             time.sleep(_AU_INTERVAL)
             continue
 
-        # JP在庫あり・競合価格なし（独占出品）→ 価格更新せずアクティブ維持
+        # JP在庫あり・競合価格なし（独占出品）→ 停止
+        # 独占出品は市場価格が不明 → 赤字リスクあり → 安全側に倒して停止
+        # bulk_reactivate（AU 3セラー以上確認済み）が再出品を担う
         if not jp_price:
-            logger.debug("[price_update] %s: JP独占出品（競合価格なし）→ 現在価格維持", asin)
+            try:
+                _set_quantity(api, seller_id, sku, 0)
+                paused += 1
+                logger.info("[price_update] %s: JP独占出品（競合価格なし）→ 停止", asin)
+            except Exception as e:
+                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                failed += 1
+            time.sleep(_AU_INTERVAL)
             continue
 
         # 最低利益ライン（赤字にならない最安値）
