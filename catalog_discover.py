@@ -451,6 +451,10 @@ def list_new_item(api, seller_id: str, asin: str, price_aud: float):
         "productType": "PRODUCT",
         "requirements": "LISTING_OFFER_ONLY",
         "attributes": {
+            # 相乗り出品に必須: どのASINに紐付けるかをAmazonに伝える
+            "merchant_suggested_asin": [
+                {"value": asin, "marketplace_id": MARKETPLACE_AU}
+            ],
             "condition_type": [
                 {"value": "new_new", "marketplace_id": MARKETPLACE_AU}
             ],
