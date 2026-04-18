@@ -42,6 +42,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
       - name: Discover and list new ASINs from JP catalog
         env:
           AMAZON_JP_REFRESH_TOKEN: ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}

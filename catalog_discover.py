@@ -62,32 +62,30 @@ JP_INTERVAL = 2.1        # Products API JP: 0.5 req/s
 AU_PRICE_INTERVAL = 2.1  # Products API AU: 0.5 req/s
 PATCH_INTERVAL = 0.3     # ListingsItems: 5 req/s
 
-# セラーページスクレイピング用ヘッダー
-SCRAPER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-AU,en;q=0.9,ja;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Cache-Control": "no-cache",
-}
+# Playwright スクレイピング用 User-Agent リスト（ランダム選択）
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+]
 
 
-def _get_proxy() -> Optional[dict]:
+def _human_delay(min_sec: float = 1.5, max_sec: float = 4.0) -> None:
+    """人間らしいランダム待機"""
+    time.sleep(random.uniform(min_sec, max_sec))
+
+
+def _random_scroll(page) -> None:
     """
-    GitHub Actions IP は Amazon にブロックされるためプロキシ必須。
-    PROXY_USER / PROXY_PASS が設定されている場合のみプロキシを使用する。
+    ページをランダムにスクロールする（人間らしく）。
+    一度に大きくスクロールせず、少しずつ読んでいるように見せる。
     """
-    if not config.PROXY_USER or not config.PROXY_PASS:
-        logger.warning("[catalog_discover] プロキシ未設定 — Amazon にブロックされる可能性があります")
-        return None
-    host, port = random.choice(config.PROXY_LIST)
-    proxy_url = f"http://{config.PROXY_USER}:{config.PROXY_PASS}@{host}:{port}"
-    return {"http": proxy_url, "https": proxy_url}
+    num_scrolls = random.randint(4, 9)
+    for _ in range(num_scrolls):
+        scroll_y = random.randint(150, 600)
+        page.evaluate(f"window.scrollBy(0, {scroll_y})")
+        time.sleep(random.uniform(0.2, 0.9))
 
 
 # ─────────────────────────────────────────────
@@ -151,103 +149,156 @@ def scrape_seller_asins(
     existing_asins: set = None,
 ) -> list:
     """
-    SELLER_URLS に設定した競合セラーの AU 出品ページをスクレイピングし、
-    既存カタログにない新規 ASIN リストを返す。
+    Playwright（ヘッドレスChromium）で競合セラーの AU 出品ページを巡回し、
+    新規 ASIN リストを返す。
 
-    真贋リスク対策:
-      - 競合が実際に AU で販売している商品のみを対象とする
-      - キーワード検索では見つかるが競合が売っていない商品（真贋リスク高）は除外
+    設計方針（BAN回避）:
+      - JS レンダリング済みの実ブラウザ → Amazon の bot 検知を回避
+      - ランダムスクロール・ホバー・非等間隔待機で「人間らしさ」を演出
+      - セラーごとにページを開き直し（ブラウザコンテキストは使い回す）
+      - CAPTCHA 検出時はそのセラーをスキップして次へ
 
     Args:
         seller_urls: 競合セラーURL リスト（config.SELLER_URLS）
-                     例: ["https://www.amazon.com.au/s?me=A1XXXXX&marketplaceID=A39IBJ37TRP1C6"]
-        max_pages:   1セラーあたり最大スクレイピングページ数
+        max_pages:   1セラーあたり最大ページ数
         existing_asins: 除外する既知 ASIN セット
 
     Returns:
         新規 ASIN リスト（重複なし）
     """
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
     if existing_asins is None:
         existing_asins = set()
 
     if not seller_urls:
         logger.error(
-            "[catalog_discover] SELLER_URLS が未設定です。"
+            "[catalog_discover] SELLER_URLS が未設定。"
             "GitHub Secrets に SELLER_URLS を登録してください。"
-            "（find_au_sellers.py を実行してセラーIDを取得できます）"
         )
         return []
 
     all_asins: list = []
     seen = set(existing_asins)
 
-    for raw_url in seller_urls:
-        # seller_id を URL から抽出
-        m = re.search(r'me=([A-Z0-9]+)', raw_url)
-        if not m:
-            logger.warning("[catalog_discover] seller_id 抽出失敗（スキップ）: %s", raw_url)
-            continue
-        seller_id = m.group(1)
-        logger.info("[catalog_discover] セラー %s のページ取得開始（最大%dページ）",
-                    seller_id, max_pages)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        context = browser.new_context(
+            viewport={
+                "width":  random.choice([1280, 1366, 1440, 1920]),
+                "height": random.choice([768, 800, 900, 1080]),
+            },
+            user_agent=random.choice(_USER_AGENTS),
+            locale="en-AU",
+            timezone_id="Australia/Sydney",
+            # 自動化フラグを隠す
+            extra_http_headers={
+                "Accept-Language": "en-AU,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        # navigator.webdriver を隠す
+        context.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+        )
 
-        seller_new = 0
-        proxies = _get_proxy()
-        for page in range(1, max_pages + 1):
-            page_url = (
-                f"https://www.amazon.com.au/s"
-                f"?me={seller_id}&marketplaceID={MARKETPLACE_AU}&page={page}"
-            )
-            try:
-                resp = _requests.get(
-                    page_url, headers=SCRAPER_HEADERS,
-                    proxies=proxies,
-                    timeout=30, allow_redirects=True,
+        page = context.new_page()
+
+        for raw_url in seller_urls:
+            m = re.search(r"me=([A-Z0-9]+)", raw_url)
+            if not m:
+                logger.warning("[catalog_discover] seller_id 抽出失敗: %s", raw_url)
+                continue
+            seller_id = m.group(1)
+            logger.info("[catalog_discover] Playwright: seller=%s 開始（最大%dページ）",
+                        seller_id, max_pages)
+
+            seller_new = 0
+
+            for page_num in range(1, max_pages + 1):
+                page_url = (
+                    f"https://www.amazon.com.au/s"
+                    f"?me={seller_id}&marketplaceID={MARKETPLACE_AU}&page={page_num}"
                 )
+                try:
+                    page.goto(page_url, wait_until="domcontentloaded", timeout=30_000)
+                    _human_delay(2.0, 4.5)
 
-                if resp.status_code == 503:
-                    logger.warning("[catalog_discover] 503 Block seller=%s page=%d — 中断",
-                                   seller_id, page)
+                    # ── CAPTCHA / ブロック検出 ──
+                    url_now = page.url.lower()
+                    if "captcha" in url_now or "robot" in url_now or "sorry" in url_now:
+                        logger.warning("[catalog_discover] CAPTCHA/Block検出 seller=%s page=%d → スキップ",
+                                       seller_id, page_num)
+                        break
+                    if page.query_selector("#captchacharacters") or page.query_selector("form[action*='captcha']"):
+                        logger.warning("[catalog_discover] CAPTCHA入力フォーム検出 seller=%s → スキップ",
+                                       seller_id)
+                        break
+
+                    # ── 人間らしいスクロール ──
+                    _random_scroll(page)
+
+                    # ── たまに商品にホバー（無駄な動き = 人間らしさ）──
+                    if random.random() < 0.45:
+                        items = page.query_selector_all("[data-asin]")
+                        if items:
+                            target = random.choice(items[:min(6, len(items))])
+                            try:
+                                target.hover()
+                                time.sleep(random.uniform(0.4, 1.2))
+                            except Exception:
+                                pass
+
+                    # ── さらにスクロールして下部まで読む ──
+                    _random_scroll(page)
+                    _human_delay(0.8, 2.0)
+
+                    # ── ASIN 抽出 ──
+                    content = page.content()
+                    raw_asins = re.findall(r'data-asin="([A-Z0-9]{10})"', content)
+                    page_new = 0
+                    for asin in dict.fromkeys(raw_asins):
+                        if asin and asin not in seen:
+                            seen.add(asin)
+                            all_asins.append(asin)
+                            page_new += 1
+                            seller_new += 1
+
+                    logger.info("[catalog_discover] seller=%s page=%d: %d件新規（累計%d件）",
+                                seller_id, page_num, page_new, len(all_asins))
+
+                    # ── 次ページ判定 ──
+                    next_btn = page.query_selector(".s-pagination-next:not([aria-disabled])")
+                    if not next_btn or page_new == 0:
+                        logger.info("[catalog_discover] seller=%s page=%d で終端", seller_id, page_num)
+                        break
+
+                    # ── 次ページへ（長めに待つ = 人間が読んでいる） ──
+                    _human_delay(3.0, 6.5)
+
+                except PWTimeout:
+                    logger.warning("[catalog_discover] タイムアウト seller=%s page=%d", seller_id, page_num)
                     break
-                resp.raise_for_status()
-                html = resp.text
-
-                # data-asin="XXXXXXXXXX" を全て抽出
-                raw_asins = re.findall(r'data-asin="([A-Z0-9]{10})"', html)
-                # 重複排除して追加
-                page_new = 0
-                for asin in dict.fromkeys(raw_asins):  # 順序保持の重複除去
-                    if asin not in seen:
-                        seen.add(asin)
-                        all_asins.append(asin)
-                        page_new += 1
-                        seller_new += 1
-
-                logger.debug("[catalog_discover] seller=%s page=%d: %d件新規（累計%d件）",
-                             seller_id, page, page_new, len(all_asins))
-
-                # 次ページなし判定
-                # Amazon は最終ページで next ボタンが disabled になる
-                if (
-                    page_new == 0  # 新しいASINが1件もなかった
-                    or 's-pagination-next' not in html  # ページネーション自体なし
-                    or 'aria-disabled="true"' in html   # next が disabled
-                ):
+                except Exception as e:
+                    logger.warning("[catalog_discover] エラー seller=%s page=%d: %s", seller_id, page_num, e)
                     break
 
-            except Exception as e:
-                logger.warning("[catalog_discover] ページ取得失敗 seller=%s page=%d: %s",
-                               seller_id, page, e)
-                break
+            logger.info("[catalog_discover] seller=%s 完了: %d件収集", seller_id, seller_new)
+            # セラー間は長めに待つ（急ぎすぎない）
+            _human_delay(5.0, 10.0)
 
-            # リクエスト間隔（2〜3秒でランダム化）
-            time.sleep(config.SCRAPER_REQUEST_DELAY + random.uniform(0, 1))
+        context.close()
+        browser.close()
 
-        logger.info("[catalog_discover] seller=%s: %d件収集", seller_id, seller_new)
-        # セラー間も少し間隔を空ける
-        time.sleep(config.SCRAPER_REQUEST_DELAY)
-
-    logger.info("[catalog_discover] 全セラー合計 新規ASIN候補: %d件", len(all_asins))
+    logger.info("[catalog_discover] 全セラー 新規ASIN候補: %d件", len(all_asins))
     return all_asins
 
 

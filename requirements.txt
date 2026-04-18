@@ -9,3 +9,4 @@ google-generativeai>=0.8.0
 gspread>=6.0.0
 google-auth>=2.0.0
 ebaysdk>=2.2.0
+playwright>=1.44.0
