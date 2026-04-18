@@ -76,6 +76,16 @@ SHIPCO_FROM_CITY    = os.getenv("SHIPCO_FROM_CITY", "TSUKUBA")
 SHIPCO_FROM_ADDRESS1= os.getenv("SHIPCO_FROM_ADDRESS1", "")
 SHIPCO_MAX_DHL_JPY  = int(os.getenv("SHIPCO_MAX_DHL_JPY", "5000"))  # DHL上限(円)、超えたらeパケットに切替
 
+# ── プロキシ設定（スクレイピング用）─────────────────────────────────
+PROXY_USER = os.getenv("PROXY_USER", "")
+PROXY_PASS = os.getenv("PROXY_PASS", "")
+# IPアドレス:ポート のリスト（負荷分散用）
+PROXY_LIST = [
+    ("31.59.20.176",    "6754"),
+    ("198.23.239.134",  "6540"),
+    ("45.38.107.97",    "6014"),
+]
+
 # ── 競合セラー URL リスト（catalog_discover で使用）────────────────
 # 例: "https://www.amazon.com.au/s?me=A1XXXXX&marketplaceID=A39IBJ37TRP1C6"
 # 複数の場合はカンマ区切り

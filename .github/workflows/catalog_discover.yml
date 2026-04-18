@@ -56,6 +56,8 @@ jobs:
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
           SELLER_URLS: ${{ secrets.SELLER_URLS }}
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
           DHL_SHIPPING_JPY: "3800"
           AU_FEE_RATE: "0.15"
           HANDLING_TIME_DAYS: "2"

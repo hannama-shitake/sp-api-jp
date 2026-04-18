@@ -30,6 +30,7 @@ import random
 import sys
 import time
 import argparse
+from typing import Optional
 
 import requests as _requests
 from sp_api.api import Reports, Products, ListingsItems
@@ -74,6 +75,19 @@ SCRAPER_HEADERS = {
     "Connection": "keep-alive",
     "Cache-Control": "no-cache",
 }
+
+
+def _get_proxy() -> Optional[dict]:
+    """
+    GitHub Actions IP は Amazon にブロックされるためプロキシ必須。
+    PROXY_USER / PROXY_PASS が設定されている場合のみプロキシを使用する。
+    """
+    if not config.PROXY_USER or not config.PROXY_PASS:
+        logger.warning("[catalog_discover] プロキシ未設定 — Amazon にブロックされる可能性があります")
+        return None
+    host, port = random.choice(config.PROXY_LIST)
+    proxy_url = f"http://{config.PROXY_USER}:{config.PROXY_PASS}@{host}:{port}"
+    return {"http": proxy_url, "https": proxy_url}
 
 
 # ─────────────────────────────────────────────
@@ -178,6 +192,7 @@ def scrape_seller_asins(
                     seller_id, max_pages)
 
         seller_new = 0
+        proxies = _get_proxy()
         for page in range(1, max_pages + 1):
             page_url = (
                 f"https://www.amazon.com.au/s"
@@ -186,6 +201,7 @@ def scrape_seller_asins(
             try:
                 resp = _requests.get(
                     page_url, headers=SCRAPER_HEADERS,
+                    proxies=proxies,
                     timeout=30, allow_redirects=True,
                 )
 
