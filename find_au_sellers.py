@@ -123,8 +123,8 @@ def find_sellers_for_asins(asins: list) -> tuple:
 
 def main():
     parser = argparse.ArgumentParser(description="AU競合セラー発見ツール")
-    parser.add_argument("--max", type=int, default=300,
-                        help="チェックするASIN上限（デフォルト300）")
+    parser.add_argument("--max", type=int, default=500,
+                        help="チェックするASIN上限（デフォルト500）")
     args = parser.parse_args()
 
     # 1. 全出品ASINを取得（active優先）
@@ -147,7 +147,8 @@ def main():
     print("Amazon AU 競合セラー候補（被りが多い順）")
     print("=" * 60)
 
-    top_sellers = seller_counter.most_common(20)
+    # 上位30件表示（Gemini推奨: 利益重視セラーを選別するため多めに出す）
+    top_sellers = seller_counter.most_common(30)
     for seller_id, count in top_sellers:
         url = f"https://www.amazon.com.au/s?me={seller_id}&marketplaceID=A39IBJ37TRP1C6"
         examples = ", ".join(seller_asins[seller_id][:3])
@@ -156,13 +157,14 @@ def main():
         print(f"  例ASIN: {examples}")
 
     print("\n" + "=" * 60)
-    print("SELLER_URLSに追加するURL（カンマ区切り）")
+    print("SELLER_URLSに追加するURL（カンマ区切り・上位20件）")
+    print("※ 安売り大手を避け、利益重視の中堅セラーを手動で選んでください")
     print("=" * 60)
-    top10_urls = [
+    top20_urls = [
         f"https://www.amazon.com.au/s?me={sid}&marketplaceID=A39IBJ37TRP1C6"
-        for sid, _ in seller_counter.most_common(10)
+        for sid, _ in seller_counter.most_common(20)
     ]
-    print(",".join(top10_urls))
+    print(",".join(top20_urls))
     print()
 
 
