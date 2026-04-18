@@ -2,11 +2,16 @@ name: Find AU Sellers
 
 on:
   workflow_dispatch:
+    inputs:
+      max_asins:
+        description: 'チェックするASIN上限'
+        required: false
+        default: '300'
 
 jobs:
   find:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v4
@@ -28,4 +33,6 @@ jobs:
           AMAZON_JP_REFRESH_TOKEN: ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
           AMAZON_JP_LWA_CLIENT_ID: ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
           AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
-        run: python find_au_sellers.py
+        run: |
+          MAX="${{ github.event.inputs.max_asins }}"
+          python find_au_sellers.py --max "${MAX:-300}"
