@@ -19,10 +19,10 @@ on:
         description: '競合セラー最小数'
         required: false
         default: '3'
-      pages_per_kw:
-        description: 'キーワードあたり検索ページ数'
+      max_pages:
+        description: 'セラーあたり最大スクレイピングページ数'
         required: false
-        default: '5'
+        default: '10'
   schedule:
     - cron: '0 16 * * *'  # 毎日 01:00 JST（毎日実行）
 
@@ -55,6 +55,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
+          SELLER_URLS: ${{ secrets.SELLER_URLS }}
           DHL_SHIPPING_JPY: "3800"
           AU_FEE_RATE: "0.15"
           HANDLING_TIME_DAYS: "2"
@@ -65,8 +66,8 @@ jobs:
           fi
           MAX="${{ github.event.inputs.max_new }}"
           MIN_S="${{ github.event.inputs.min_sellers }}"
-          PAGES="${{ github.event.inputs.pages_per_kw }}"
+          PAGES="${{ github.event.inputs.max_pages }}"
           python catalog_discover.py $ARGS \
             --max-new "${MAX:-300}" \
             --min-sellers "${MIN_S:-3}" \
-            --pages-per-kw "${PAGES:-5}"
+            --max-pages "${PAGES:-10}"
