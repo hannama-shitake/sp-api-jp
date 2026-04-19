@@ -493,7 +493,8 @@ def list_new_item(api, seller_id: str, asin: str, price_aud: float):
 
     # ── Step 2: PATCH で価格・数量を確実に設定 ──
     # PUTだけでは Missing Offer になるケースがある（bulk_reactivate.pyと同パターン）
-    time.sleep(0.5)
+    # Amazon が PUT を非同期処理するため 10 秒待ってから PATCH する
+    time.sleep(10)
     patch_body = {
         "productType": "PRODUCT",
         "patches": [
