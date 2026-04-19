@@ -93,8 +93,10 @@ def list_item_fbm(asin: str, price_aud: float, quantity: int = 1) -> Tuple[bool,
             logger.warning("[amazon_au] 出品警告: %s - %s", asin, msg)
             return False, msg
 
-        # Step 2: PATCH で価格・数量を確実に反映（PUT だけでは Missing Offer になる）
-        time.sleep(0.5)
+        # Step 2: PATCH で価格・数量を確実に反映
+        # Amazon が PUT を非同期処理するため 10 秒待ってから PATCH する
+        # （0.5秒では間に合わず Missing Offer になる）
+        time.sleep(10)
         patch_body = {
             "productType": "PRODUCT",
             "patches": [
