@@ -224,7 +224,11 @@ def parse_purchase_email(msg) -> dict | None:
         m = re.search(r"注文番号[:\s：]*([0-9\-]+)", body)
         if m:
             order_ref = m.group(1).strip()
-        m = re.search(r"(?:合計金額|お支払い合計)[:\s：]*[¥￥]?\s*([\d,]+)\s*円?", body)
+        # 支払い金額（ポイント差引後の実払い額）を優先取得
+        # 優先度: 支払い金額 > お支払い金額 > 合計金額 > お支払い合計
+        m = re.search(r"(?:支払い金額|お支払い金額)[:\s：\t]*[¥￥]?\s*([\d,]+)\s*円?", body)
+        if not m:
+            m = re.search(r"(?:合計金額|お支払い合計)[:\s：\t]*[¥￥]?\s*([\d,]+)\s*円?", body)
         if m:
             try:
                 cost_jpy = int(m.group(1).replace(",", ""))
