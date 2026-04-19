@@ -445,13 +445,17 @@ def get_au_seller_counts(asins: list) -> dict:
 # ─────────────────────────────────────────────
 
 def list_new_item(api, seller_id: str, asin: str, price_aud: float):
-    """PUT で新規 FBM 相乗り出品する（既存SKUがない場合に使用）"""
+    """
+    新規 FBM 相乗り出品: PUT（ASIN紐付け）→ PATCH（価格・数量設定）の2ステップ。
+    PUTだけでは Missing Offer になるため、必ずPATCHで価格・数量を確定する。
+    """
     sku = f"{config.SKU_PREFIX}{asin}"
-    body = {
+
+    # ── Step 1: PUT でASINに相乗り登録 ──
+    put_body = {
         "productType": "PRODUCT",
         "requirements": "LISTING_OFFER_ONLY",
         "attributes": {
-            # 相乗り出品に必須: どのASINに紐付けるかをAmazonに伝える
             "merchant_suggested_asin": [
                 {"value": asin, "marketplace_id": MARKETPLACE_AU}
             ],
@@ -479,14 +483,52 @@ def list_new_item(api, seller_id: str, asin: str, price_aud: float):
         sellerId=seller_id,
         sku=sku,
         marketplaceIds=[MARKETPLACE_AU],
-        body=body,
+        body=put_body,
     )
     status = resp.payload.get("status", "")
-    if status in ("ACCEPTED", "VALID"):
-        return True, sku
-    issues = resp.payload.get("issues", [])
-    msg = "; ".join(i.get("message", "") for i in issues)
-    return False, msg
+    if status not in ("ACCEPTED", "VALID"):
+        issues = resp.payload.get("issues", [])
+        msg = "; ".join(i.get("message", "") for i in issues)
+        return False, msg
+
+    # ── Step 2: PATCH で価格・数量を確実に設定 ──
+    # PUTだけでは Missing Offer になるケースがある（bulk_reactivate.pyと同パターン）
+    time.sleep(0.5)
+    patch_body = {
+        "productType": "PRODUCT",
+        "patches": [
+            {
+                "op": "replace",
+                "path": "/attributes/fulfillment_availability",
+                "value": [{
+                    "fulfillment_channel_code": "DEFAULT",
+                    "quantity": 1,
+                    "lead_time_to_ship_max_days": config.HANDLING_TIME_DAYS,
+                    "marketplace_id": MARKETPLACE_AU,
+                }],
+            },
+            {
+                "op": "replace",
+                "path": "/attributes/purchasable_offer",
+                "value": [{
+                    "currency": "AUD",
+                    "our_price": [{"schedule": [{"value_with_tax": price_aud}]}],
+                    "marketplace_id": MARKETPLACE_AU,
+                }],
+            },
+        ],
+    }
+    try:
+        api.patch_listings_item(
+            sellerId=seller_id,
+            sku=sku,
+            marketplaceIds=[MARKETPLACE_AU],
+            body=patch_body,
+        )
+    except Exception as e:
+        logger.warning("[catalog_discover] PATCH失敗（PUTは成功） %s: %s", sku, e)
+
+    return True, sku
 
 
 # ─────────────────────────────────────────────
