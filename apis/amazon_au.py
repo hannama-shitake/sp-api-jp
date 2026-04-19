@@ -1,3 +1,4 @@
+import time
 from typing import Optional, Dict, List, Tuple
 from sp_api.api import ListingsItems, Products
 from sp_api.base import Marketplaces, SellingApiException
@@ -43,10 +44,14 @@ def list_item_fbm(asin: str, price_aud: float, quantity: int = 1) -> Tuple[bool,
             marketplace=Marketplaces.AU,
         )
 
-        body = {
+        # Step 1: PUT で ASIN に相乗り登録（merchant_suggested_asin 必須）
+        put_body = {
             "productType": "PRODUCT",
             "requirements": "LISTING_OFFER_ONLY",
             "attributes": {
+                "merchant_suggested_asin": [
+                    {"value": asin, "marketplace_id": config.MARKETPLACE_AU}
+                ],
                 "condition_type": [
                     {"value": "new_new", "marketplace_id": config.MARKETPLACE_AU}
                 ],
@@ -78,18 +83,60 @@ def list_item_fbm(asin: str, price_aud: float, quantity: int = 1) -> Tuple[bool,
             sellerId=_SELLER_ID,
             sku=sku,
             marketplaceIds=[config.MARKETPLACE_AU],
-            body=body,
+            body=put_body,
         )
 
         status = resp.payload.get("status", "")
-        if status in ("ACCEPTED", "VALID"):
-            logger.info("[amazon_au] 出品成功: %s (SKU: %s, ¥%.2f AUD)", asin, sku, price_aud)
-            return True, sku
-        else:
+        if status not in ("ACCEPTED", "VALID"):
             issues = resp.payload.get("issues", [])
             msg = "; ".join(i.get("message", "") for i in issues)
             logger.warning("[amazon_au] 出品警告: %s - %s", asin, msg)
             return False, msg
+
+        # Step 2: PATCH で価格・数量を確実に反映（PUT だけでは Missing Offer になる）
+        time.sleep(0.5)
+        patch_body = {
+            "productType": "PRODUCT",
+            "patches": [
+                {
+                    "op": "replace",
+                    "path": "/attributes/fulfillment_availability",
+                    "value": [
+                        {
+                            "fulfillment_channel_code": "DEFAULT",
+                            "quantity": quantity,
+                            "lead_time_to_ship_max_days": config.HANDLING_TIME_DAYS,
+                            "marketplace_id": config.MARKETPLACE_AU,
+                        }
+                    ],
+                },
+                {
+                    "op": "replace",
+                    "path": "/attributes/purchasable_offer",
+                    "value": [
+                        {
+                            "currency": "AUD",
+                            "our_price": [
+                                {"schedule": [{"value_with_tax": price_aud}]}
+                            ],
+                            "marketplace_id": config.MARKETPLACE_AU,
+                        }
+                    ],
+                },
+            ],
+        }
+        try:
+            api.patch_listings_item(
+                sellerId=_SELLER_ID,
+                sku=sku,
+                marketplaceIds=[config.MARKETPLACE_AU],
+                body=patch_body,
+            )
+        except Exception as e:
+            logger.warning("[amazon_au] PATCH失敗（PUTは成功） %s: %s", sku, e)
+
+        logger.info("[amazon_au] 出品成功: %s (SKU: %s, AUD %.2f)", asin, sku, price_aud)
+        return True, sku
 
     except SellingApiException as e:
         logger.error("[amazon_au] 出品エラー (ASIN %s): %s", asin, e)
