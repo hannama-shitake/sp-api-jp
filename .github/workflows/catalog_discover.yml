@@ -18,7 +18,7 @@ on:
       min_sellers:
         description: '競合セラー最小数'
         required: false
-        default: '3'
+        default: '2'
       max_pages:
         description: 'セラーあたり最大スクレイピングページ数'
         required: false
@@ -74,5 +74,5 @@ jobs:
           PAGES="${{ github.event.inputs.max_pages }}"
           python catalog_discover.py $ARGS \
             --max-new "${MAX:-300}" \
-            --min-sellers "${MIN_S:-3}" \
+            --min-sellers "${MIN_S:-2}" \
             --max-pages "${PAGES:-10}"
