@@ -2,13 +2,13 @@ name: Arbitrage Monitor
 
 on:
   schedule:
-    - cron: '0 * * * *'  # 1時間ごと
-  workflow_dispatch:      # 手動実行も可能
+    - cron: '0 */3 * * *'  # 3時間ごと（SELLER_URLS 20件ループに対応）
+  workflow_dispatch:        # 手動実行も可能
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 110
 
     steps:
       - uses: actions/checkout@v4
