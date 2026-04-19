@@ -63,7 +63,7 @@ COL = {
 }
 
 AU_FEE_RATE   = float(os.getenv("AU_FEE_RATE", "0.15"))
-SHIP_JPY      = int(os.getenv("DHL_SHIPPING_JPY", "4500"))
+SHIP_JPY      = int(os.getenv("DHL_SHIPPING_JPY", "3800"))
 
 
 # ── Gmail接続 ─────────────────────────────────────────────────
@@ -320,9 +320,9 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     row[COL["title"] - 1]      = order.get("title", "")[:50]
     row[COL["aud"] - 1]        = aud or ""
     row[COL["revenue_jpy"] - 1] = revenue_jpy
-    row[COL["cost_jpy"] - 1]   = ""
-    row[COL["ship_jpy"] - 1]   = SHIP_JPY
-    row[COL["profit_jpy"] - 1] = ""
+    row[COL["cost_jpy"] - 1]   = ""   # 手動入力
+    row[COL["ship_jpy"] - 1]   = ""   # 手動入力（実費確定後に記入）
+    row[COL["profit_jpy"] - 1] = ""   # 手動入力
 
     ws.append_row(row, value_input_option="USER_ENTERED")
     logger.info("[sheets] 注文追加: %s (%s)", order["order_id"], order.get("title", "")[:30])
@@ -418,12 +418,12 @@ def main():
         added += 1
         time.sleep(1)  # Sheets APIレート制限対策
 
-    # 仕入れ情報を更新
+    # 仕入れ・送料・粗利は手動入力のため自動更新しない
     updated = 0
-    for purchase in purchases:
-        if update_purchase_info(ws, purchase, order_ids, exchange_rate):
-            updated += 1
-        time.sleep(1)
+    # for purchase in purchases:
+    #     if update_purchase_info(ws, purchase, order_ids, exchange_rate):
+    #         updated += 1
+    #     time.sleep(1)
 
     logger.info("[sheets] 完了: 注文追加 %d件 / 仕入れ更新 %d件", added, updated)
     print(f"\n注文追加: {added}件 / 仕入れ更新: {updated}件")
