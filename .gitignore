@@ -5,3 +5,8 @@ __pycache__/
 *.db
 *.log
 .DS_Store
+.claude/
+*.txt
+feed_result.txt
+list_done.txt
+list_log.txt
