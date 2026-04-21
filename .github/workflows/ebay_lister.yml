@@ -23,8 +23,8 @@ on:
         options:
           - 'false'
           - 'true'
-  schedule:
-    - cron: '0 20 * * *'  # 毎日 05:00 JST（価格同期）
+  # schedule:
+  #   - cron: '0 20 * * *'  # eBay未設定のためスケジュール停止中
 
 jobs:
   ebay-lister:
