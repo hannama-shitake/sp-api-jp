@@ -11,6 +11,8 @@ on:
         options:
           - 'false'
           - 'true'
+  schedule:
+    - cron: '0 18 * * 0'  # 毎週日曜 03:00 JST（inactive一括回復）
 
 jobs:
   bulk-reactivate:

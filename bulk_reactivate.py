@@ -350,9 +350,43 @@ def bulk_reactivate(inactive_listings: list, jp_prices: dict, seller_counts: dic
 
         jp_price, in_stock = jp_data
 
-        # JP競合価格なし → 再出品しない（在庫確認できず）
-        if not in_stock or not jp_price:
+        # JP在庫なし → スキップ
+        if not in_stock:
             skipped_no_stock += 1
+            continue
+
+        # JP競合価格なし（独占出品）→ 現在のAU価格で再出品を試みる
+        if not jp_price:
+            current_price_str = listing.get("price", "")
+            try:
+                current_price = float(current_price_str) if current_price_str else 0.0
+            except ValueError:
+                current_price = 0.0
+            if current_price <= 0:
+                skipped_no_stock += 1
+                continue
+            # 現在価格で再出品（catalog_discover が出品時に利益確認済み）
+            log_msg = f"{asin}: JP在庫あり（独占）→ AU${current_price:.2f} {title}"
+            if dry_run:
+                logger.info("[bulk_reactivate][DRY-RUN] 再出品予定(独占) %s", log_msg)
+                reactivated_details.append({
+                    "asin": asin, "title": title, "jp_price": 0,
+                    "au_price": current_price, "profit_rate": 0.0,
+                    "seller_count": 0,
+                })
+            else:
+                try:
+                    _patch_reactivate(api, seller_id, sku, current_price)
+                    logger.info("[bulk_reactivate] 再出品完了(独占) %s", log_msg)
+                    reactivated_details.append({
+                        "asin": asin, "title": title, "jp_price": 0,
+                        "au_price": current_price, "profit_rate": 0.0,
+                        "seller_count": 0,
+                    })
+                except Exception as e:
+                    logger.warning("[bulk_reactivate] %s: 再出品失敗(独占) - %s", asin, e)
+                    failed_count += 1
+            time.sleep(AU_PATCH_INTERVAL)
             continue
 
         # 最低利益ライン

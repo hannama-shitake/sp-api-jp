@@ -254,18 +254,26 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
             time.sleep(_AU_INTERVAL)
             continue
 
-        # JP在庫あり・競合価格なし（独占出品）→ 停止
-        # 独占出品は市場価格が不明 → 赤字リスクあり → 安全側に倒して停止
-        # bulk_reactivate（AU 3セラー以上確認済み）が再出品を担う
+        # JP在庫あり・競合価格なし（JP独占出品）→ 現在価格を維持してスキップ
+        # get_competitive_pricing はJPセラー1人の場合価格を返さないため、
+        # catalog_discover が出品した商品が誤停止されないよう停止しない
         if not jp_price:
-            try:
-                _set_quantity(api, seller_id, sku, 0)
-                paused += 1
-                logger.info("[price_update] %s: JP独占出品（競合価格なし）→ 停止", asin)
-            except Exception as e:
-                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
-                failed += 1
-            time.sleep(_AU_INTERVAL)
+            current_price = float(listing.get("current_price_aud") or 0)
+            if was_inactive and current_price > 0:
+                # 停止中かつ現在価格あり → 最低利益ラインを仮算出して再出品判断
+                # jp_price が不明なため conservative に min_price は計算できないが
+                # catalog_discover が出品時に利益確認済みなので現在価格で再出品する
+                try:
+                    _patch_price_and_quantity(api, seller_id, sku, current_price)
+                    reactivated += 1
+                    logger.info("[price_update] %s: JP独占出品・現在価格で再出品 AU$%.2f",
+                                asin, current_price)
+                except Exception as e:
+                    logger.warning("[price_update] %s: 再出品失敗 - %s", asin, e)
+                    failed += 1
+                time.sleep(_AU_INTERVAL)
+            else:
+                logger.debug("[price_update] %s: JP独占出品（競合価格なし）→ 現在価格維持でスキップ", asin)
             continue
 
         # 最低利益ライン（赤字にならない最安値）
