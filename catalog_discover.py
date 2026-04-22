@@ -628,19 +628,26 @@ def discover_and_list(
                 len(asins_with_stock), len(asins_with_stock) / 20 * AU_PRICE_INTERVAL / 60)
     au_bulk_prices = get_au_competitor_prices_bulk(asins_with_stock)
 
-    # AUに競合が存在するASINだけをセラー数チェックへ
+    # AUセラー数チェックへ渡す候補を選定
+    # get_competitive_pricing はAU競合が1人だと価格を返さないため、
+    # 「AU価格なし」≠「AU競合なし」。AU価格なしの商品もセラー数チェックへ回す。
+    # （セラー数チェックで get_item_offers を使うため実際の価格・競合数を確認できる）
     au_candidates = []
+    skipped_no_au = 0
     for asin in asins_with_stock:
         jp_price, _ = jp_prices.get(asin, (None, False))
         if not jp_price:
+            skipped_no_au += 1
             continue
         min_line = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
         comp_price = au_bulk_prices.get(asin)
-        if comp_price and comp_price >= min_line:
-            au_candidates.append(asin)
+        # AU価格があって明らかに利益不足な場合のみスキップ（AU価格なしは通す）
+        if comp_price is not None and comp_price < min_line:
+            skipped_no_au += 1
+            continue
+        au_candidates.append(asin)
 
-    skipped_no_au = len(asins_with_stock) - len(au_candidates)
-    logger.info("[catalog_discover] セラー数確認候補: %d件 (AU価格なし/利益不足: %d件)",
+    logger.info("[catalog_discover] セラー数確認候補: %d件 (JP価格なし/AU明確赤字: %d件)",
                 len(au_candidates), skipped_no_au)
 
     if not au_candidates:
