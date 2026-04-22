@@ -307,7 +307,11 @@ def scrape_seller_asins(
 # ─────────────────────────────────────────────
 
 def get_jp_prices_bulk(asins: list) -> dict:
-    """20件バッチで JP 価格 {asin: (price_jpy, in_stock)} を返す"""
+    """
+    20件バッチで JP 価格 {asin: (price_jpy, in_stock)} を返す。
+    get_competitive_pricing_for_asins は複数セラーがいる場合のみ価格を返すため、
+    独占出品（1セラー）の場合は get_item_offers でフォールバック取得する。
+    """
     api = Products(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
     result = {}
     batch_size = 20
@@ -353,8 +357,31 @@ def get_jp_prices_bulk(asins: list) -> dict:
             logger.warning("[catalog_discover] JP価格バッチエラー (%s...): %s", batch[0], e)
         time.sleep(JP_INTERVAL)
 
+    # ── フォールバック: JP独占出品（in_stock=True だが price=None）の価格を取得 ──
+    # get_competitive_pricing はセラーが1人だと価格を返さないため get_item_offers で補完
+    sole_asins = [a for a, (p, s) in result.items() if s and not p]
+    if sole_asins:
+        logger.info("[catalog_discover] JP独占出品フォールバック価格取得: %d件", len(sole_asins))
+        for asin in sole_asins:
+            try:
+                resp = api.get_item_offers(asin, item_condition="New")
+                offers = (resp.payload or {}).get("Offers", [])
+                prices = [
+                    int(float(o["ListingPrice"]["Amount"]))
+                    for o in offers
+                    if o.get("ListingPrice", {}).get("Amount")
+                ]
+                if prices:
+                    result[asin] = (min(prices), True)
+                    logger.debug("[catalog_discover] JP独占価格取得: %s ¥%d", asin, min(prices))
+            except SellingApiException as e:
+                logger.debug("[catalog_discover] JP独占価格取得失敗 %s: %s", asin, e)
+            time.sleep(JP_INTERVAL)
+
     in_stock_count = sum(1 for v in result.values() if v[1])
-    logger.info("[catalog_discover] JP価格取得完了: %d件中%d件在庫あり", total, in_stock_count)
+    price_count = sum(1 for v in result.values() if v[0])
+    logger.info("[catalog_discover] JP価格取得完了: %d件中 在庫あり%d件 価格あり%d件",
+                total, in_stock_count, price_count)
     return result
 
 
