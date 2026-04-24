@@ -1,0 +1,8 @@
+{
+  "comment": "出品前NGワードリスト - 食品安全・ポリシー違反リスク",
+  "food_safety": ["supplement", "vitamin", "protein powder", "probiotic", "dietary", "nutrition", "calorie", "ingredient", "serving size", "daily value", "fda", "tga", "food grade", "edible", "consume", "ingest", "drink", "eat", "flavor", "taste", "organic certified", "非遺伝子組み換え"],
+  "pesticide_chemical": ["pesticide", "herbicide", "insecticide", "fungicide", "fertilizer", "chemical spray", "weed killer"],
+  "drug_medical": ["prescription", "otc", "drug", "medication", "medicine", "pharmaceutical", "treat", "cure", "diagnose", "prevent disease", "fda approved", "tga approved"],
+  "restricted_weapons": ["airsoft", "bb gun", "pellet gun", "stun gun", "taser", "pepper spray", "knife blade", "switchblade"],
+  "age_restricted": ["adult only", "18+", "tobacco", "cigarette", "vape", "e-cigarette", "alcohol", "liquor", "wine", "beer"]
+}

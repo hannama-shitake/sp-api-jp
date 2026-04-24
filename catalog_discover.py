@@ -33,7 +33,7 @@ import argparse
 from typing import Optional
 
 import requests as _requests
-from sp_api.api import Reports, Products, ListingsItems
+from sp_api.api import Reports, Products, ListingsItems, CatalogItems
 from sp_api.base import Marketplaces, SellingApiException
 
 import config
@@ -468,6 +468,41 @@ def get_au_seller_counts(asins: list) -> dict:
 
 
 # ─────────────────────────────────────────────
+# 5b. NGワードチェック
+# ─────────────────────────────────────────────
+import json as _json
+import re as _re
+
+_NG_WORDS: list = []
+
+
+def _load_ng_words():
+    global _NG_WORDS
+    if _NG_WORDS:
+        return
+    try:
+        path = os.path.join(os.path.dirname(__file__), "ng_words.json")
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        for category_words in data.values():
+            if isinstance(category_words, list):
+                _NG_WORDS.extend([w.lower() for w in category_words])
+        logger.info("[catalog_discover] NGワード辞書ロード: %d件", len(_NG_WORDS))
+    except Exception as e:
+        logger.warning("[catalog_discover] NGワード辞書ロード失敗: %s", e)
+
+
+def _check_ng_words(title: str, asin: str) -> tuple:
+    """タイトルにNGワードが含まれているか確認。(is_ng: bool, matched: str)"""
+    _load_ng_words()
+    title_lower = title.lower()
+    for word in _NG_WORDS:
+        if word in title_lower:
+            return True, word
+    return False, ""
+
+
+# ─────────────────────────────────────────────
 # 6. 新規出品
 # ─────────────────────────────────────────────
 
@@ -705,6 +740,20 @@ def discover_and_list(
                 "seller_count": offer_info["seller_count"],
             })
             continue
+
+        # NGワードチェック（Catalog APIでタイトル取得）
+        try:
+            cat_api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
+            cat_resp = cat_api.get_catalog_item(asin, marketplaceIds=[MARKETPLACE_JP], includedData=["summaries"])
+            title = ((cat_resp.payload or {}).get("summaries") or [{}])[0].get("itemName", "") or ""
+        except Exception:
+            title = ""
+        if title:
+            is_ng, ng_word = _check_ng_words(title, asin)
+            if is_ng:
+                logger.info("[catalog_discover] %s: NGワード「%s」検出 → スキップ", asin, ng_word)
+                skipped_unprofitable += 1
+                continue
 
         try:
             ok, msg = list_new_item(listings_api, seller_id, asin, final_price)
