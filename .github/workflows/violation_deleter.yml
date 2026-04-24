@@ -1,0 +1,52 @@
+name: Violation Finder & Deleter
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '実行アクション'
+        required: true
+        default: 'find_only'
+        type: choice
+        options:
+          - find_only       # 違反ASIN一覧を調べるだけ
+          - find_and_delete # 調べて削除まで実行
+
+jobs:
+  violation-deleter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Find violations
+        env:
+          AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: python violation_finder.py
+
+      - name: Delete violations
+        if: ${{ github.event.inputs.action == 'find_and_delete' }}
+        env:
+          AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID: ${{ secrets.AMAZON_AU_SELLER_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: python violation_deleter.py --yes
