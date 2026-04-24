@@ -88,14 +88,31 @@ def notify_monitor_summary(scraped: int, profitable: int, listed: int, errors: i
     send_email(subject=subject, body=body)
 
 
-def notify_price_update_summary(updated: int, paused: int, failed: int, reactivated: int = 0):
+def notify_price_update_summary(
+    updated: int,
+    paused: int,
+    failed: int,
+    reactivated: int = 0,
+    sole_seller: int = 0,
+    buybox_win: int = 0,
+):
     """Price Update の実行サマリー通知（変化があった時のみ）"""
     if updated == 0 and paused == 0 and failed == 0 and reactivated == 0:
         return  # 何も変化なければ通知しない
 
+    featured_offer_est = sole_seller + buybox_win
     subject = f"[SP-API Price] 価格更新{updated}件 / 再出品{reactivated}件 / 停止{paused}件"
     if failed > 0:
         subject += f" / エラー{failed}件"
+
+    fo_lines = ""
+    if featured_offer_est > 0:
+        fo_lines = (
+            f"\n--- Featured Offer 推定獲得数 ---\n"
+            f"独占出品（自動FO）:           {sole_seller}件\n"
+            f"競合あり・1%アンダーカット:   {buybox_win}件\n"
+            f"合計 Featured Offer 推定:      {featured_offer_est}件\n"
+        )
 
     body = (
         f"Price Update 実行完了\n\n"
@@ -103,6 +120,7 @@ def notify_price_update_summary(updated: int, paused: int, failed: int, reactiva
         f"再出品:   {reactivated}件（停止中→出品中 ★他セラー販売開始 or JP在庫復活）\n"
         f"出品停止: {paused}件（JP在庫なし or 利益率不足）\n"
         f"失敗:     {failed}件\n"
+        f"{fo_lines}"
     )
     send_email(subject=subject, body=body)
 

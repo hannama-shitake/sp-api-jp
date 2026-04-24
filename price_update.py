@@ -228,6 +228,8 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
     api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
 
     updated = paused = reactivated = failed = 0
+    sole_seller = 0    # AU独占（競合なし） → 自動でFeatured Offer獲得
+    buybox_win = 0     # 競合あり・アンダーカット出品 → Featured Offer狙い
 
     for listing in listings:
         asin = listing["asin"]
@@ -294,17 +296,21 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                     failed += 1
                 time.sleep(_AU_INTERVAL)
                 continue
-            final_price = comp_price  # 競合と同額で出品
+            # 競合価格から BUYBOX_UNDERCUT_RATE 分引いてFeatured Offer狙い
+            undercut = round(comp_price * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
+            final_price = max(undercut, min_price)  # 最低ラインは下回らない
+            buybox_win += 1
         else:
-            # ★ 競合なし: 現在価格が最低ラインより高ければ維持（独占状態の利益を守る）
+            # ★ 競合なし: 現在価格が最低ラインより高ければ維持（独占 → 自動でFeatured Offer）
             current_price = float(listing.get("current_price_aud") or 0)
+            sole_seller += 1
             if current_price >= min_price:
                 final_price = current_price
-                logger.debug("[price_update] %s: 競合なし → 現在価格維持 AU$%.2f",
+                logger.debug("[price_update] %s: 独占出品 → 現在価格維持 AU$%.2f",
                              asin, final_price)
             else:
                 final_price = min_price   # 未設定 or 安すぎ → 最低ラインで出品
-                logger.debug("[price_update] %s: 競合なし → 最低ライン AU$%.2f",
+                logger.debug("[price_update] %s: 独占出品 → 最低ライン AU$%.2f",
                              asin, final_price)
 
         # Amazon Fair Pricing Policy: JP基準価格の MAX_FAIR_PRICE_RATIO 倍を超える価格は設定しない
@@ -338,20 +344,29 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                             f"{comp_price:.2f}" if comp_price else "なし")
             else:
                 updated += 1
-                logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f (粗利率%.1f%%, 競合$%s)",
-                             asin, jp_price, final_price, result.profit_rate,
-                             f"{comp_price:.2f}" if comp_price else "なし")
+                if comp_price:
+                    logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [FO狙い -%.1f%% 競合$%.2f]",
+                                 asin, jp_price, final_price,
+                                 (comp_price - final_price) / comp_price * 100, comp_price)
+                else:
+                    logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [独占 粗利率%.1f%%]",
+                                 asin, jp_price, final_price, result.profit_rate)
         except Exception as e:
             logger.warning("[price_update] %s: 価格更新失敗 - %s", asin, e)
             failed += 1
 
         time.sleep(_AU_INTERVAL)
 
+    featured_offer_est = sole_seller + buybox_win
     logger.info(
         "[price_update] 完了: 更新 %d件 / 再出品 %d件 / 停止 %d件 / 失敗 %d件",
         updated, reactivated, paused, failed,
     )
-    return updated, paused, failed, reactivated
+    logger.info(
+        "[price_update] Featured Offer推定: 独占 %d件 + 競合アンダーカット %d件 = 計 %d件",
+        sole_seller, buybox_win, featured_offer_est,
+    )
+    return updated, paused, failed, reactivated, sole_seller, buybox_win
 
 
 def _set_quantity(api, seller_id, sku, quantity):
@@ -439,10 +454,15 @@ def main():
     au_comp_prices = get_au_competitor_prices_bulk(asins)
 
     # 3. AU価格更新 / 停止 / 再出品
-    updated, paused, failed, reactivated = update_au_prices(
+    updated, paused, failed, reactivated, sole_seller, buybox_win = update_au_prices(
         listings, jp_prices, au_comp_prices, exchange_rate, seller_id
     )
-    notify_price_update_summary(updated, paused, failed, reactivated=reactivated)
+    notify_price_update_summary(
+        updated, paused, failed,
+        reactivated=reactivated,
+        sole_seller=sole_seller,
+        buybox_win=buybox_win,
+    )
 
 
 if __name__ == "__main__":

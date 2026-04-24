@@ -46,8 +46,14 @@ JPY_TO_USD_FALLBACK = float(os.getenv("JPY_TO_USD_FALLBACK", "0.0067"))  # 1 JPY
 
 # ── FBM 発送リードタイム ─────────────────────────────────────
 # 注文から発送完了までの最大日数（ハンドリングタイム）
-# 競合他社は通常 2〜3日設定。未設定だとアカウントデフォルト(5〜7日)になりBuyBox不利
-HANDLING_TIME_DAYS = int(os.getenv("HANDLING_TIME_DAYS", "5"))
+# JP仕入れ→受取→梱包→発送: 概ね3〜4日。5日以上はFeatured Offer（BuyBox）で不利
+# 3日: 競合並み（同日購入・翌日受取が必要）/ 4日: JP仕入れモデルで現実的（推奨）
+HANDLING_TIME_DAYS = int(os.getenv("HANDLING_TIME_DAYS", "4"))
+
+# ── Featured Offer（BuyBox）戦略 ────────────────────────────
+# 競合最安値からこのレートだけ引いた価格で出品（Featured Offer獲得狙い）
+# 0.01 = 1%アンダーカット。0.0 にすると同額マッチ（従来の挙動）
+BUYBOX_UNDERCUT_RATE = float(os.getenv("BUYBOX_UNDERCUT_RATE", "0.01"))
 
 # ── スケジューラー設定 ────────────────────────────────────────
 SCHEDULER_EXCHANGE_RATE_MINUTES = int(os.getenv("SCHEDULER_EXCHANGE_RATE_MINUTES", "30"))
