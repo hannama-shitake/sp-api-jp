@@ -70,6 +70,20 @@ _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 ]
 
+# ソート順リスト: 毎回ランダムで変えることで同じセラーから異なる商品を発掘
+_SORT_ORDERS = [
+    "",                      # Featured（デフォルト）
+    "&s=price-asc-rank",     # 価格の安い順
+    "&s=price-desc-rank",    # 価格の高い順
+    "&s=date-desc-rank",     # 新着順
+    "&s=review-rank",        # カスタマーレビュー評価順
+    "&s=relevanceblender",   # 関連性順（代替フィーチャード）
+]
+
+# 連続空ページ最大許容数: この数だけ既知ASINしかないページが続いたら終端とみなす
+# ページ1が全部既知でも2,3ページ目に新規があるので 1 で打ち切らない
+MAX_CONSECUTIVE_EMPTY = 3
+
 
 def _human_delay(min_sec: float = 1.5, max_sec: float = 4.0) -> None:
     """人間らしいランダム待機"""
@@ -222,11 +236,18 @@ def scrape_seller_asins(
                         seller_id, max_pages)
 
             seller_new = 0
+            # ソート順をランダムに選択（毎セラーごと）→ 同じセラーから異なる商品面を発掘
+            sort_param = random.choice(_SORT_ORDERS)
+            logger.info("[catalog_discover] seller=%s ソート順: %s",
+                        seller_id, sort_param or "Featured（デフォルト）")
+
+            consecutive_empty = 0  # 連続して新規ASINがなかったページ数
 
             for page_num in range(1, max_pages + 1):
                 page_url = (
                     f"https://www.amazon.com.au/s"
-                    f"?me={seller_id}&marketplaceID={MARKETPLACE_AU}&page={page_num}"
+                    f"?me={seller_id}&marketplaceID={MARKETPLACE_AU}"
+                    f"&page={page_num}{sort_param}"
                 )
                 try:
                     page.goto(page_url, wait_until="domcontentloaded", timeout=30_000)
@@ -276,9 +297,22 @@ def scrape_seller_asins(
                                 seller_id, page_num, page_new, len(all_asins))
 
                     # ── 次ページ判定 ──
+                    # ★ page_new==0でも即打ち切らない（既知ASINだらけのページをスキップして先に進む）
+                    # MAX_CONSECUTIVE_EMPTY ページ連続で新規なしの場合だけ終端とみなす
+                    if page_new == 0:
+                        consecutive_empty += 1
+                    else:
+                        consecutive_empty = 0
+
                     next_btn = page.query_selector(".s-pagination-next:not([aria-disabled])")
-                    if not next_btn or page_new == 0:
-                        logger.info("[catalog_discover] seller=%s page=%d で終端", seller_id, page_num)
+                    if not next_btn:
+                        logger.info("[catalog_discover] seller=%s page=%d で最終ページ", seller_id, page_num)
+                        break
+                    if consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
+                        logger.info(
+                            "[catalog_discover] seller=%s page=%d: %d連続で新規なし → 終端",
+                            seller_id, page_num, consecutive_empty,
+                        )
                         break
 
                     # ── 次ページへ（長めに待つ = 人間が読んでいる） ──

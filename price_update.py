@@ -227,9 +227,12 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
     """
     api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
 
-    updated = paused = reactivated = failed = 0
-    sole_seller = 0    # AU独占（競合なし） → 自動でFeatured Offer獲得
-    buybox_win = 0     # 競合あり・アンダーカット出品 → Featured Offer狙い
+    updated = reactivated = failed = 0
+    paused_no_stock = 0    # JP在庫なし → 停止
+    paused_too_cheap = 0   # 競合価格が利益ラインを下回る → 停止
+    paused_fair = 0        # フェアプライシング上限超過 → 停止
+    sole_seller = 0        # AU独占（競合なし） → 自動でFeatured Offer獲得
+    buybox_win = 0         # 競合あり・アンダーカット出品 → Featured Offer狙い
 
     for listing in listings:
         asin = listing["asin"]
@@ -248,7 +251,7 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
         if not in_stock:
             try:
                 _set_quantity(api, seller_id, sku, 0)
-                paused += 1
+                paused_no_stock += 1
                 logger.info("[price_update] %s: JP在庫切れ(Count=0) → 停止", asin)
             except Exception as e:
                 logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
@@ -288,8 +291,8 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                 # 競合が安すぎて利益出ない → 停止
                 try:
                     _set_quantity(api, seller_id, sku, 0)
-                    paused += 1
-                    logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → 停止",
+                    paused_too_cheap += 1
+                    logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → 停止（利益率不足）",
                                 asin, comp_price, min_price)
                 except Exception as e:
                     logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
@@ -318,7 +321,7 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
         if final_price > jp_ref_aud * config.MAX_FAIR_PRICE_RATIO:
             try:
                 _set_quantity(api, seller_id, sku, 0)
-                paused += 1
+                paused_fair += 1
                 logger.info(
                     "[price_update] %s: フェアプライシング上限超過 AU$%.2f > AU$%.2f×%.1f → 停止",
                     asin, final_price, jp_ref_aud, config.MAX_FAIR_PRICE_RATIO,
@@ -357,16 +360,17 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
 
         time.sleep(_AU_INTERVAL)
 
+    paused = paused_no_stock + paused_too_cheap + paused_fair
     featured_offer_est = sole_seller + buybox_win
     logger.info(
-        "[price_update] 完了: 更新 %d件 / 再出品 %d件 / 停止 %d件 / 失敗 %d件",
-        updated, reactivated, paused, failed,
+        "[price_update] 完了: 更新 %d件 / 再出品 %d件 / 停止 %d件 (在庫なし%d / 赤字%d / FP%d) / 失敗 %d件",
+        updated, reactivated, paused, paused_no_stock, paused_too_cheap, paused_fair, failed,
     )
     logger.info(
         "[price_update] Featured Offer推定: 独占 %d件 + 競合アンダーカット %d件 = 計 %d件",
         sole_seller, buybox_win, featured_offer_est,
     )
-    return updated, paused, failed, reactivated, sole_seller, buybox_win
+    return updated, paused, failed, reactivated, sole_seller, buybox_win, paused_no_stock, paused_too_cheap, paused_fair
 
 
 def _set_quantity(api, seller_id, sku, quantity):
@@ -454,7 +458,7 @@ def main():
     au_comp_prices = get_au_competitor_prices_bulk(asins)
 
     # 3. AU価格更新 / 停止 / 再出品
-    updated, paused, failed, reactivated, sole_seller, buybox_win = update_au_prices(
+    updated, paused, failed, reactivated, sole_seller, buybox_win, paused_no_stock, paused_too_cheap, paused_fair = update_au_prices(
         listings, jp_prices, au_comp_prices, exchange_rate, seller_id
     )
     notify_price_update_summary(
@@ -462,6 +466,9 @@ def main():
         reactivated=reactivated,
         sole_seller=sole_seller,
         buybox_win=buybox_win,
+        paused_no_stock=paused_no_stock,
+        paused_too_cheap=paused_too_cheap,
+        paused_fair=paused_fair,
     )
 
 

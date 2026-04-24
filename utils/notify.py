@@ -95,6 +95,9 @@ def notify_price_update_summary(
     reactivated: int = 0,
     sole_seller: int = 0,
     buybox_win: int = 0,
+    paused_no_stock: int = 0,
+    paused_too_cheap: int = 0,
+    paused_fair: int = 0,
 ):
     """Price Update の実行サマリー通知（変化があった時のみ）"""
     if updated == 0 and paused == 0 and failed == 0 and reactivated == 0:
@@ -104,6 +107,18 @@ def notify_price_update_summary(
     subject = f"[SP-API Price] 価格更新{updated}件 / 再出品{reactivated}件 / 停止{paused}件"
     if failed > 0:
         subject += f" / エラー{failed}件"
+
+    # 停止内訳（"ごそっと消え"の診断用）
+    pause_detail = ""
+    if paused > 0:
+        pause_detail = (
+            f"\n--- 停止内訳（消えた原因） ---\n"
+            f"  JP在庫なし:               {paused_no_stock}件\n"
+            f"  競合価格が利益ライン以下:  {paused_too_cheap}件  ← 利益率高すぎ？\n"
+            f"  フェアプライシング上限:    {paused_fair}件\n"
+        )
+        if paused_too_cheap > paused_no_stock:
+            pause_detail += "  ⚠️ 赤字停止が多い場合は MIN_PROFIT_RATE の引き下げ（30→25%）を検討\n"
 
     fo_lines = ""
     if featured_offer_est > 0:
@@ -117,9 +132,10 @@ def notify_price_update_summary(
     body = (
         f"Price Update 実行完了\n\n"
         f"価格更新: {updated}件\n"
-        f"再出品:   {reactivated}件（停止中→出品中 ★他セラー販売開始 or JP在庫復活）\n"
-        f"出品停止: {paused}件（JP在庫なし or 利益率不足）\n"
+        f"再出品:   {reactivated}件（停止中→出品中）\n"
+        f"出品停止: {paused}件\n"
         f"失敗:     {failed}件\n"
+        f"{pause_detail}"
         f"{fo_lines}"
     )
     send_email(subject=subject, body=body)
