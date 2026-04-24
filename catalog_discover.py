@@ -502,10 +502,11 @@ def get_au_seller_counts(asins: list) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 5b. NGワードチェック
+# 5b. NGワードチェック / 重量チェック
 # ─────────────────────────────────────────────
 import json as _json
 import re as _re
+from typing import Optional as _Optional_float  # 型ヒント用（重量返り値）
 
 _NG_WORDS: list = []
 
@@ -534,6 +535,33 @@ def _check_ng_words(title: str, asin: str) -> tuple:
         if word in title_lower:
             return True, word
     return False, ""
+
+
+def _extract_weight_kg(payload: dict) -> _Optional_float:
+    """
+    CatalogItems API レスポンスの dimensions から重量(kg)を取得する。
+    取得できない場合は None を返す。
+    """
+    try:
+        dims = (payload or {}).get("dimensions") or []
+        for dim in dims:
+            w = dim.get("weight") or {}
+            value = w.get("value")
+            unit = (w.get("unit") or "").lower()
+            if value is None:
+                continue
+            value = float(value)
+            if "kilogram" in unit or unit == "kg":
+                return value
+            elif "gram" in unit:
+                return value / 1000.0
+            elif "pound" in unit or unit == "lb":
+                return value * 0.453592
+            elif "ounce" in unit or unit == "oz":
+                return value * 0.0283495
+    except Exception:
+        pass
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -775,19 +803,47 @@ def discover_and_list(
             })
             continue
 
-        # NGワードチェック（Catalog APIでタイトル取得）
+        # NGワード＋重量チェック（Catalog APIでタイトル・重量を同時取得）
         try:
             cat_api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
-            cat_resp = cat_api.get_catalog_item(asin, marketplaceIds=[MARKETPLACE_JP], includedData=["summaries"])
-            title = ((cat_resp.payload or {}).get("summaries") or [{}])[0].get("itemName", "") or ""
+            cat_resp = cat_api.get_catalog_item(
+                asin,
+                marketplaceIds=[MARKETPLACE_JP],
+                includedData=["summaries", "dimensions"],
+            )
+            payload = cat_resp.payload or {}
+            title = (payload.get("summaries") or [{}])[0].get("itemName", "") or ""
+            weight_kg = _extract_weight_kg(payload)
         except Exception:
             title = ""
+            weight_kg = None
+
+        # NGワードチェック
         if title:
             is_ng, ng_word = _check_ng_words(title, asin)
             if is_ng:
                 logger.info("[catalog_discover] %s: NGワード「%s」検出 → スキップ", asin, ng_word)
                 skipped_unprofitable += 1
                 continue
+
+        # 重量チェック（1kg以上 → 送料+¥5,000で再計算）
+        if weight_kg is not None and weight_kg >= config.HEAVY_ITEM_THRESHOLD_KG:
+            min_line_heavy = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
+            if comp_price < min_line_heavy:
+                logger.info(
+                    "[catalog_discover] %s: 重量%.2fkg → 送料+¥%d → 最低ライン$%.2f > 競合$%.2f → スキップ",
+                    asin, weight_kg, config.HEAVY_SHIPPING_SURCHARGE_JPY, min_line_heavy, comp_price,
+                )
+                skipped_unprofitable += 1
+                continue
+            # 利益が出る場合は重量込みの最低ラインを適用
+            final_price = max(comp_price, min_line_heavy)
+            logger.info(
+                "[catalog_discover] %s: 重量%.2fkg → 送料加算済み AU$%.2f（競合$%.2f）",
+                asin, weight_kg, final_price, comp_price,
+            )
+        else:
+            final_price = comp_price
 
         try:
             ok, msg = list_new_item(listings_api, seller_id, asin, final_price)

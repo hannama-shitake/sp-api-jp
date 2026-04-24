@@ -28,13 +28,20 @@ class ProfitResult:
 def get_shipping_jpy(weight_kg: Optional[float] = None) -> int:
     """
     重量に基づいて国際送料(円)を返す。
-    2kg以下 → DHL、2kg超 → EMS/eパケット、重量不明 → DHL
+
+    重量不明              → DHL基本料（¥3,800）
+    0 〜 1kg未満          → DHL基本料（¥3,800）
+    1kg 〜 DHL上限(2kg)   → DHL + 重量サーチャージ（+¥5,000）
+    2kg超                 → EMS/eパケット + 重量サーチャージ
     """
     if weight_kg is None:
         return config.DHL_SHIPPING_JPY
-    if weight_kg <= config.DHL_MAX_WEIGHT_KG:
+    if weight_kg < config.HEAVY_ITEM_THRESHOLD_KG:
         return config.DHL_SHIPPING_JPY
-    return config.EMS_SHIPPING_JPY
+    # 1kg以上 → 追加送料
+    if weight_kg <= config.DHL_MAX_WEIGHT_KG:
+        return config.DHL_SHIPPING_JPY + config.HEAVY_SHIPPING_SURCHARGE_JPY
+    return config.EMS_SHIPPING_JPY + config.HEAVY_SHIPPING_SURCHARGE_JPY
 
 
 def calc_profit(
@@ -114,16 +121,23 @@ def calc_profit(
     )
 
 
-def calc_optimal_au_price(jp_price_jpy: int, target_profit_rate: float = None, exchange_rate: float = None) -> float:
+def calc_optimal_au_price(
+    jp_price_jpy: int,
+    target_profit_rate: float = None,
+    exchange_rate: float = None,
+    weight_kg: Optional[float] = None,
+) -> float:
     """
     JP仕入値から、目標粗利率を達成するための最適 AU 出品価格を計算する。
+
+    weight_kg を渡すと重量別送料（1kg以上は+¥5,000）を考慮した価格を返す。
     exchange_rate を渡すと get_jpy_to_aud() の呼び出しを省略できる（ループ内で使う場合に推奨）。
     """
     if target_profit_rate is None:
         target_profit_rate = config.MIN_PROFIT_RATE
 
     rate = exchange_rate if exchange_rate else get_jpy_to_aud()
-    intl_shipping_jpy = config.INTL_SHIPPING_JPY
+    intl_shipping_jpy = get_shipping_jpy(weight_kg)   # 重量考慮した送料
     required_revenue_jpy = jp_price_jpy * (1 + target_profit_rate / 100) + intl_shipping_jpy
     required_net_aud = required_revenue_jpy * rate
     au_price = required_net_aud / (1 - config.AU_FEE_RATE)

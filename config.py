@@ -32,6 +32,11 @@ AU_FEE_RATE = float(os.getenv("AU_FEE_RATE", "0.15"))  # Amazon AU 手数料率
 PRICE_UPDATE_THRESHOLD = float(os.getenv("PRICE_UPDATE_THRESHOLD", "3"))  # 価格変動閾値(%)
 MAX_FAIR_PRICE_RATIO = float(os.getenv("MAX_FAIR_PRICE_RATIO", "3.0"))  # Amazon Fair Pricing Policy: JP基準価格(JPY×rate)の最大倍率
 
+# ── 重量別送料設定 ────────────────────────────────────────────
+# 1kg以上は送料が大幅増加するため追加コストを見込む
+HEAVY_ITEM_THRESHOLD_KG = float(os.getenv("HEAVY_ITEM_THRESHOLD_KG", "1.0"))   # 重量品とみなす閾値(kg)
+HEAVY_SHIPPING_SURCHARGE_JPY = int(os.getenv("HEAVY_SHIPPING_SURCHARGE_JPY", "2500"))  # 重量品追加送料(円) ※変更: HEAVY_SHIPPING_SURCHARGE_JPY Secret で上書き可
+
 # AU 出品価格の上乗せ係数（粗利確保のためのバッファ）
 PRICE_MARKUP_MULTIPLIER = float(os.getenv("PRICE_MARKUP_MULTIPLIER", "1.0"))
 
