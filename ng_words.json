@@ -1,16 +1,48 @@
 {
-  "comment": "出品前NGワードリスト - 食品安全・ポリシー違反リスク",
+  "comment": "出品前NGワードリスト - AU安全規制・ポリシー違反リスク（47件の実違反から学習済み）",
+
   "food_safety": ["supplement", "vitamin", "protein powder", "probiotic", "dietary", "nutrition", "calorie", "ingredient", "serving size", "daily value", "fda", "tga", "food grade", "edible", "consume", "ingest", "drink", "eat", "flavor", "taste", "organic certified", "非遺伝子組み換え"],
+
   "pesticide_chemical": ["pesticide", "herbicide", "insecticide", "fungicide", "fertilizer", "chemical spray", "weed killer"],
+
   "drug_medical": ["prescription", "otc", "drug", "medication", "medicine", "pharmaceutical", "treat", "cure", "diagnose", "prevent disease", "fda approved", "tga approved"],
+
   "restricted_weapons": ["airsoft", "bb gun", "pellet gun", "stun gun", "taser", "pepper spray", "knife blade", "switchblade"],
+
   "age_restricted": ["adult only", "18+", "tobacco", "cigarette", "vape", "e-cigarette", "alcohol", "liquor", "wine", "beer"],
-  "button_battery": [
+
+  "button_battery_products": [
     "button battery", "button cell", "coin battery", "coin cell", "lithium coin",
     "cr2032", "cr2025", "cr2016", "cr2012", "cr1620", "cr1632", "cr2430", "cr2450", "cr1220",
     "lr44", "ag13", "ag3", "ag10", "sr626", "sr44", "357 battery",
     "watch battery", "hearing aid battery",
-    "腕時計", "置き時計", "掛け時計", "目覚まし時計",
-    "リモコン", "キーホルダー型", "電卓", "体温計", "血圧計"
+    "wristwatch", "wrist watch", "腕時計", "置き時計", "掛け時計", "目覚まし時計",
+    "motherboard", "マザーボード",
+    "リモコン", "電卓", "体温計", "血圧計"
+  ],
+
+  "au_electrical_compliance": [
+    "travel adapter", "travel plug", "plug adapter", "power adapter", "ac adapter",
+    "トラベルアダプター", "変換プラグ", "海外旅行用"
+  ],
+
+  "au_gas_appliances": [
+    "gas stove", "camping stove", "butane stove", "gas burner", "camp stove",
+    "gigapower", "ガスストーブ", "バーナー", "ガスバーナー", "カセットコンロ",
+    "gas cartridge", "fuel canister"
+  ],
+
+  "au_hot_water_bottles": [
+    "hot water bottle", "湯たんぽ", "ゆたんぽ"
+  ],
+
+  "au_baby_products": [
+    "baby feeding", "infant feeding", "baby bottle", "sippy cup", "baby bowl",
+    "哺乳瓶", "離乳食", "ベビー食器", "幼児用"
+  ],
+
+  "au_toys_safety": [
+    "n gauge", "nゲージ", "model train", "鉄道模型",
+    "pretty cure", "precure", "プリキュア"
   ]
 }
