@@ -1,9 +1,34 @@
 # Amazon AU 競合セラーURL一覧
-# find_au_sellers.py により毎週自動更新（GitHub Actions）
-# フォーマット: 1行1URL、# はコメント行
-# セラー数: 0
+# find_au_sellers.py により自動更新 | 最終更新: 2026-04-26
+# セラー数: 30 / 上限: 30
 #
-# ※ 初回は find_au_sellers.py --update-file を実行してください
-#    または手動でURLを追加してください（1行1URL）
-# 例:
-#   https://www.amazon.com.au/s?me=AXXXXXXXXXXX&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2ZMFMKSDHA43S&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A4XRJ8S0WXSO0&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2CKO3XXY3UJVE&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=AHYQ03U724I4V&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=AS5D78QVRTLKP&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3GCJ89X0ITT23&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1KEKPBBINIWZJ&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3JCEYBC5L8UJ8&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1L3L6AHLG3N79&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3SFQLVXY8GUH2&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A11Q13J4AP3PRH&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=ANBW5NGGTP7SK&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A21UPUBHOUFSOM&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3DUVPDP9MXCGE&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2KHK5FPMCON2I&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A504JA83FLAZB&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2NXGXNI78VM7R&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=AK7VKPDINHZCK&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=AWFX8Q7MNYE1Q&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3I4NYJKP3GMMP&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2KFIRL9G1OKSS&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1861APR24ILGA&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3OZE2JY7W6D5K&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=AAXNV3TJM2BSW&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1ZS5E5298POEY&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3P6X2GIMA114Z&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1FM51SVZT1F0Z&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A29JJVT3DBP3Q8&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2UNWZZYZVYWU0&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1LPCPNOU0BPFQ&marketplaceID=A39IBJ37TRP1C6
