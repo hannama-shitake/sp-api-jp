@@ -39,6 +39,13 @@ from sp_api.base import Marketplaces, SellingApiException
 import config
 from apis.exchange_rate import get_jpy_to_aud
 from modules.profit_calc import calc_optimal_au_price, calc_profit
+from utils.candidates_db import (
+    init_db as _init_candidates_db,
+    upsert_candidates,
+    update_candidate,
+    get_checked_today_asins,
+    STATUS_LISTED, STATUS_NG, STATUS_RESTRICTED,
+)
 from utils.logger import get_logger
 from utils.notify import send_email
 
@@ -147,10 +154,12 @@ def get_existing_asins() -> set:
     for row in reader:
         asin = row.get("asin1", "").strip()
         item_status = row.get("status", "").strip().lower()
-        if asin and len(asin) == 10 and item_status != "deleted":
+        # active のみ除外（inactive/suppressed は候補DBで再チェック対象にする）
+        if asin and len(asin) == 10 and item_status == "active":
             known.add(asin)
 
-    logger.info("[catalog_discover] 既存ASIN: %d件", len(known))
+    logger.info("[catalog_discover] 既存active ASIN: %d件（inactive は候補DB経由で再チェック）",
+                len(known))
     return known
 
 
@@ -746,6 +755,20 @@ def discover_and_list(
         logger.info("[catalog_discover] 新規ASIN候補なし。終了")
         return [], 0, 0, 0, 0, 0, 0
 
+    # ── 候補DBに全件保存（利益チェック前に保存 = 捨てない）──────────
+    _init_candidates_db()
+    db_added = upsert_candidates(new_asins)
+    logger.info("[catalog_discover] 候補DB: +%d件新規追加（累計は recheck --stats で確認）",
+                db_added)
+
+    # recheck_candidates.py が今日すでにチェック済みのASINはスキップ
+    checked_today = get_checked_today_asins()
+    before = len(new_asins)
+    new_asins = [a for a in new_asins if a not in checked_today]
+    if before != len(new_asins):
+        logger.info("[catalog_discover] recheck済みASIN除外: %d件 → %d件",
+                    before, len(new_asins))
+
     logger.info("[catalog_discover] 新規ASIN候補: %d件", len(new_asins))
 
     # ── Step 3: JP価格確認 ──────────────────────────────────────────
@@ -868,6 +891,8 @@ def discover_and_list(
             is_ng, ng_word = _check_ng_words(title, asin)
             if is_ng:
                 logger.info("[catalog_discover] %s: NGワード「%s」検出 → スキップ", asin, ng_word)
+                update_candidate(asin, title=title, status=STATUS_NG,
+                                 skip_reason=f"ng:{ng_word}")
                 skipped_unprofitable += 1
                 continue
 
@@ -898,6 +923,8 @@ def discover_and_list(
             logger.info(
                 "[catalog_discover] %s: 出品不可 [%s] → スキップ", asin, restriction_code
             )
+            update_candidate(asin, status=STATUS_RESTRICTED,
+                             skip_reason=f"restricted:{restriction_code}")
             skipped_restricted += 1
             continue
 
@@ -905,6 +932,9 @@ def discover_and_list(
             ok, msg = list_new_item(listings_api, seller_id, asin, final_price)
             if ok:
                 logger.info("[catalog_discover] 出品完了 %s (SKU: %s)", log_msg, msg)
+                update_candidate(asin, status=STATUS_LISTED, listed_sku=msg,
+                                 jp_price=jp_price, au_price=final_price,
+                                 title=title, weight_kg=weight_kg)
                 listed_details.append({
                     "asin": asin, "jp_price": jp_price, "sku": msg,
                     "au_price": final_price, "profit_rate": result.profit_rate,

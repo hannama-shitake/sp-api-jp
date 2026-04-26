@@ -1,33 +1,25 @@
-name: Catalog Discover
+name: Recheck Candidates
 
 on:
+  schedule:
+    - cron: '0 17 * * *'  # 毎日 02:00 JST（catalog_discover の 1時間後）
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: 'DRY RUN（確認のみ、実際には出品しない）'
+      max_asins:
+        description: '再チェック上限件数'
         required: false
-        default: 'true'
+        default: '500'
+      dry_run:
+        description: 'DRY-RUN（出品しない）'
+        required: false
+        default: 'false'
         type: choice
         options:
-          - 'true'
           - 'false'
-      max_new:
-        description: '新規出品上限件数'
-        required: false
-        default: '300'
-      min_sellers:
-        description: '競合セラー最小数'
-        required: false
-        default: '2'
-      max_pages:
-        description: 'セラーあたり最大スクレイピングページ数'
-        required: false
-        default: '10'
-  schedule:
-    - cron: '0 16 * * *'  # 毎日 01:00 JST（毎日実行）
+          - 'true'
 
 jobs:
-  catalog-discover:
+  recheck:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -42,9 +34,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: playwright install chromium --with-deps
-
       - name: Download candidates DB (artifact)
         uses: dawidd6/action-download-artifact@v6
         with:
@@ -53,7 +42,7 @@ jobs:
           if_no_artifact_found: ignore
           workflow_conclusion: success
 
-      - name: Discover and list new ASINs from JP catalog
+      - name: Recheck candidates & auto-list
         env:
           AMAZON_JP_REFRESH_TOKEN: ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
           AMAZON_JP_LWA_CLIENT_ID: ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
@@ -66,24 +55,13 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           MIN_PROFIT_RATE: ${{ secrets.MIN_PROFIT_RATE }}
-          SELLER_URLS: ${{ secrets.SELLER_URLS }}
-          PROXY_USER: ${{ secrets.PROXY_USER }}
-          PROXY_PASS: ${{ secrets.PROXY_PASS }}
-          DHL_SHIPPING_JPY: "3800"
-          AU_FEE_RATE: "0.15"
-          HANDLING_TIME_DAYS: "5"
         run: |
           ARGS=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="--dry-run"
           fi
-          MAX="${{ github.event.inputs.max_new }}"
-          MIN_S="${{ github.event.inputs.min_sellers }}"
-          PAGES="${{ github.event.inputs.max_pages }}"
-          python catalog_discover.py $ARGS \
-            --max-new "${MAX:-300}" \
-            --min-sellers "${MIN_S:-2}" \
-            --max-pages "${PAGES:-10}"
+          MAX="${{ github.event.inputs.max_asins }}"
+          python recheck_candidates.py $ARGS --max "${MAX:-500}"
 
       - name: Upload candidates DB (artifact)
         if: always()
