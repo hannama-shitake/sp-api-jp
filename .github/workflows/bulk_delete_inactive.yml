@@ -3,14 +3,15 @@ name: Bulk Delete Inactive Listings
 on:
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: 'DRY-RUN（削除せず件数確認のみ）'
-        required: false
-        default: 'true'
+      action:
+        description: '実行アクション'
+        required: true
+        default: 'dry_run'
         type: choice
         options:
-          - 'true'
-          - 'false'
+          - dry_run          # 件数確認のみ
+          - delete_all       # inactive全件削除
+          - retry_failed     # 前回失敗分のみ再試行
 
 jobs:
   bulk-delete-inactive:
@@ -38,8 +39,23 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
         run: |
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            python bulk_delete_inactive.py --dry-run
-          else
-            python bulk_delete_inactive.py --yes
-          fi
+          case "${{ github.event.inputs.action }}" in
+            dry_run)
+              python bulk_delete_inactive.py --dry-run
+              ;;
+            delete_all)
+              python bulk_delete_inactive.py --yes
+              ;;
+            retry_failed)
+              python bulk_delete_inactive.py --yes --retry-failed
+              ;;
+          esac
+
+      - name: Upload failure CSV (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bulk_delete_failed
+          path: bulk_delete_failed.csv
+          if-no-files-found: ignore
+          retention-days: 7
