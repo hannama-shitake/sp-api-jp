@@ -1,20 +1,32 @@
-name: Find AU Sellers
+name: Find AU Sellers (Weekly Auto-Update)
 
 on:
+  schedule:
+    - cron: '0 15 * * 0'  # 毎週日曜 00:00 JST
   workflow_dispatch:
     inputs:
       max_asins:
         description: 'チェックするASIN上限'
         required: false
-        default: '300'
+        default: '500'
+      max_sellers:
+        description: 'seller_urls.txt の最大セラー数'
+        required: false
+        default: '30'
+
+# seller_urls.txt をコミット＆プッシュするために write 権限が必要
+permissions:
+  contents: write
 
 jobs:
-  find:
+  find-sellers:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
@@ -24,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Find AU sellers
+      - name: Find AU sellers & update seller_urls.txt
         env:
           AMAZON_AU_REFRESH_TOKEN: ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
           AMAZON_AU_LWA_CLIENT_ID: ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
@@ -35,4 +47,21 @@ jobs:
           AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
         run: |
           MAX="${{ github.event.inputs.max_asins }}"
-          python find_au_sellers.py --max "${MAX:-300}"
+          MAX_S="${{ github.event.inputs.max_sellers }}"
+          python find_au_sellers.py \
+            --max "${MAX:-500}" \
+            --max-sellers "${MAX_S:-30}" \
+            --update-file
+
+      - name: Commit updated seller_urls.txt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seller_urls.txt
+          if git diff --staged --quiet; then
+            echo "seller_urls.txt に変更なし（新規セラーなし）"
+          else
+            git commit -m "auto: seller_urls.txt を更新 ($(date '+%Y-%m-%d'))"
+            git push
+            echo "seller_urls.txt をコミット＆プッシュしました"
+          fi

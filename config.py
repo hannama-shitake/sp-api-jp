@@ -98,8 +98,19 @@ PROXY_LIST = [
 ]
 
 # ── 競合セラー URL リスト（catalog_discover で使用）────────────────
-# 例: "https://www.amazon.com.au/s?me=A1XXXXX&marketplaceID=A39IBJ37TRP1C6"
-# 複数の場合はカンマ区切り
-SELLER_URLS: list = [
-    u.strip() for u in os.getenv("SELLER_URLS", "").split(",") if u.strip()
-]
+# 優先度: seller_urls.txt（リポジトリ管理）> 環境変数 SELLER_URLS
+# seller_urls.txt は find_au_sellers.py --update-file で毎週自動更新される
+def _load_seller_urls() -> list:
+    _txt = os.path.join(os.path.dirname(__file__), "seller_urls.txt")
+    if os.path.exists(_txt):
+        with open(_txt, "r", encoding="utf-8") as _f:
+            _urls = [
+                _l.strip() for _l in _f
+                if _l.strip() and not _l.strip().startswith("#")
+            ]
+        if _urls:
+            return _urls
+    # フォールバック: 環境変数（旧設定との互換性）
+    return [u.strip() for u in os.getenv("SELLER_URLS", "").split(",") if u.strip()]
+
+SELLER_URLS: list = _load_seller_urls()

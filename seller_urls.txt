@@ -1,0 +1,9 @@
+# Amazon AU 競合セラーURL一覧
+# find_au_sellers.py により毎週自動更新（GitHub Actions）
+# フォーマット: 1行1URL、# はコメント行
+# セラー数: 0
+#
+# ※ 初回は find_au_sellers.py --update-file を実行してください
+#    または手動でURLを追加してください（1行1URL）
+# 例:
+#   https://www.amazon.com.au/s?me=AXXXXXXXXXXX&marketplaceID=A39IBJ37TRP1C6

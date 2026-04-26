@@ -11,8 +11,11 @@ import argparse
 import csv
 import gzip
 import io
+import os
+import re
 import time
 from collections import Counter
+from datetime import date
 
 import requests as _requests
 from sp_api.api import Reports, Products
@@ -121,10 +124,68 @@ def find_sellers_for_asins(asins: list) -> tuple:
     return seller_counter, seller_asins
 
 
+def save_seller_urls(new_seller_ids: list, max_sellers: int = 30) -> tuple:
+    """
+    発見したセラーID を seller_urls.txt に追記・マージして保存する。
+
+    - 既存URLとマージ（重複排除）
+    - 新規発見セラーを先頭に追加（最新を優先）
+    - 上限 max_sellers 件を超えたら末尾から削除
+
+    Returns:
+        (added: int, total: int) — 追加件数, 合計件数
+    """
+    txt_path = os.path.join(os.path.dirname(__file__), "seller_urls.txt")
+
+    # 既存URLからセラーIDを読み込む
+    existing_ids: list = []
+    if os.path.exists(txt_path):
+        with open(txt_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    m = re.search(r"me=([A-Z0-9]+)", line)
+                    if m:
+                        existing_ids.append(m.group(1))
+
+    existing_set = set(existing_ids)
+
+    # 新規セラーを先頭に追加
+    added = 0
+    merged: list = []
+    for sid in new_seller_ids:
+        if sid not in existing_set:
+            merged.append(sid)
+            existing_set.add(sid)
+            added += 1
+    merged.extend(existing_ids)  # 既存は後ろ（新しいものを優先）
+
+    # 上限カット
+    merged = merged[:max_sellers]
+    total = len(merged)
+
+    # ファイル書き込み
+    with open(txt_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("# Amazon AU 競合セラーURL一覧\n")
+        f.write(f"# find_au_sellers.py により自動更新 | 最終更新: {date.today()}\n")
+        f.write(f"# セラー数: {total} / 上限: {max_sellers}\n")
+        f.write("#\n")
+        for sid in merged:
+            url = f"https://www.amazon.com.au/s?me={sid}&marketplaceID=A39IBJ37TRP1C6"
+            f.write(url + "\n")
+
+    logger.info("[find_au_sellers] seller_urls.txt 更新完了: +%d件追加 / 合計%d件", added, total)
+    return added, total
+
+
 def main():
     parser = argparse.ArgumentParser(description="AU競合セラー発見ツール")
     parser.add_argument("--max", type=int, default=500,
                         help="チェックするASIN上限（デフォルト500）")
+    parser.add_argument("--update-file", action="store_true",
+                        help="発見したセラーURLを seller_urls.txt に自動追記する")
+    parser.add_argument("--max-sellers", type=int, default=30,
+                        help="seller_urls.txt の最大セラー数（デフォルト30）")
     args = parser.parse_args()
 
     # 1. 全出品ASINを取得（active優先）
@@ -166,6 +227,14 @@ def main():
     ]
     print(",".join(top20_urls))
     print()
+
+    # --update-file: seller_urls.txt に自動追記
+    if args.update_file:
+        top_ids = [sid for sid, _ in seller_counter.most_common(args.max_sellers)]
+        added, total = save_seller_urls(top_ids, max_sellers=args.max_sellers)
+        print(f"\n✅ seller_urls.txt を更新しました: +{added}件追加 / 合計{total}件")
+    else:
+        print("\n💡 seller_urls.txt に自動追記するには --update-file オプションを使ってください")
 
 
 if __name__ == "__main__":
