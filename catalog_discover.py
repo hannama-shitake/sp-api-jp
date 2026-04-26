@@ -33,7 +33,7 @@ import argparse
 from typing import Optional
 
 import requests as _requests
-from sp_api.api import Reports, Products, ListingsItems, CatalogItems
+from sp_api.api import Reports, Products, ListingsItems, CatalogItems, ListingsRestrictions
 from sp_api.base import Marketplaces, SellingApiException
 
 import config
@@ -60,7 +60,8 @@ _JP_CREDS = {
 
 JP_INTERVAL = 2.1        # Products API JP: 0.5 req/s
 AU_PRICE_INTERVAL = 2.1  # Products API AU: 0.5 req/s
-PATCH_INTERVAL = 0.3     # ListingsItems: 5 req/s
+PATCH_INTERVAL = 0.3        # ListingsItems: 5 req/s
+RESTRICTION_INTERVAL = 1.1  # ListingsRestrictions: 1 req/s
 
 # Playwright スクレイピング用 User-Agent リスト（ランダム選択）
 _USER_AGENTS = [
@@ -565,7 +566,50 @@ def _extract_weight_kg(payload: dict) -> _Optional_float:
 
 
 # ─────────────────────────────────────────────
-# 6. 新規出品
+# 6. 出品制限チェック（ListingsRestrictions API）
+# ─────────────────────────────────────────────
+
+def check_listing_restriction(asin: str, seller_id: str) -> tuple:
+    """
+    ListingsRestrictions API でこの ASIN が自アカウントで出品可能か確認する。
+
+    Amazon では一部のカテゴリ・ブランドを出品するには事前認証（Approval）が必要。
+    認証なしで PUT しても INVALID/REJECTED になるためここで事前スクリーニングする。
+
+    Returns:
+        (is_restricted: bool, reason_code: str)
+        is_restricted=False → 出品可能（または確認できなかった）
+        is_restricted=True  → APPROVAL_REQUIRED / BRAND_NOT_AUTHORIZED / 等
+    """
+    try:
+        api = ListingsRestrictions(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+        resp = api.get_listings_restrictions(
+            asin=asin,
+            sellerId=seller_id,
+            marketplaceIds=[MARKETPLACE_AU],
+            conditionType="new_new",
+        )
+        restrictions = (resp.payload or {}).get("restrictions", [])
+        if not restrictions:
+            return False, ""       # 制限なし → 出品可能
+        # 制限あり → 最初の reason_code を返す
+        for r in restrictions:
+            for reason in (r.get("reasons") or []):
+                code = reason.get("reasonCode", "RESTRICTED")
+                return True, code
+        return True, "RESTRICTED"  # reasons が空でも restrictions が存在 → 制限あり
+
+    except SellingApiException as e:
+        # API エラー → 楽観的に通す（list_new_item が失敗すれば failed_count に記録される）
+        logger.debug("[catalog_discover] ListingsRestrictions API エラー %s: %s", asin, e)
+        return False, ""
+    except Exception as e:
+        logger.debug("[catalog_discover] ListingsRestrictions 予期しないエラー %s: %s", asin, e)
+        return False, ""
+
+
+# ─────────────────────────────────────────────
+# 7. 新規出品
 # ─────────────────────────────────────────────
 
 def list_new_item(api, seller_id: str, asin: str, price_aud: float):
@@ -700,7 +744,7 @@ def discover_and_list(
     )
     if not new_asins:
         logger.info("[catalog_discover] 新規ASIN候補なし。終了")
-        return [], 0, 0, 0, 0, 0
+        return [], 0, 0, 0, 0, 0, 0
 
     logger.info("[catalog_discover] 新規ASIN候補: %d件", len(new_asins))
 
@@ -718,7 +762,7 @@ def discover_and_list(
                 len(asins_with_stock), skipped_no_stock)
 
     if not asins_with_stock:
-        return [], skipped_no_stock, 0, 0, 0, 0
+        return [], skipped_no_stock, 0, 0, 0, 0, 0
 
     # ── Step 4: AU競合価格確認（事前フィルタ）──────────────────────
     logger.info("[catalog_discover] AU競合価格確認: %d件 (約%.0f分)",
@@ -748,7 +792,7 @@ def discover_and_list(
                 len(au_candidates), skipped_no_au)
 
     if not au_candidates:
-        return [], skipped_no_stock, skipped_no_au, 0, 0, 0
+        return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
     # ── Step 5: AU セラー数確認 ────────────────────────────────────
     logger.info("[catalog_discover] セラー数確認: %d件 (約%.0f分)",
@@ -761,6 +805,7 @@ def discover_and_list(
     listed_details = []
     skipped_few_sellers = 0
     skipped_unprofitable = 0
+    skipped_restricted = 0
     failed_count = 0
 
     for asin in au_candidates:
@@ -845,6 +890,17 @@ def discover_and_list(
         else:
             final_price = comp_price
 
+        # ── 認証チェック（ListingsRestrictions API）────────────────────
+        # ゲートカテゴリ・要認証ブランドを事前スクリーニング（PUT失敗を未然に防ぐ）
+        is_restricted, restriction_code = check_listing_restriction(asin, seller_id)
+        time.sleep(RESTRICTION_INTERVAL)
+        if is_restricted:
+            logger.info(
+                "[catalog_discover] %s: 出品不可 [%s] → スキップ", asin, restriction_code
+            )
+            skipped_restricted += 1
+            continue
+
         try:
             ok, msg = list_new_item(listings_api, seller_id, asin, final_price)
             if ok:
@@ -865,16 +921,18 @@ def discover_and_list(
 
     logger.info(
         "[catalog_discover] 完了: 出品 %d件 / JP在庫なし %d件 "
-        "/ AU競合なし・利益不足 %d件 / セラー不足 %d件 / 赤字 %d件 / 失敗 %d件",
+        "/ AU競合なし・利益不足 %d件 / セラー不足 %d件 / 赤字 %d件 "
+        "/ 認証不可 %d件 / 失敗 %d件",
         len(listed_details), skipped_no_stock, skipped_no_au,
-        skipped_few_sellers, skipped_unprofitable, failed_count,
+        skipped_few_sellers, skipped_unprofitable, skipped_restricted, failed_count,
     )
-    return listed_details, skipped_no_stock, skipped_no_au, skipped_few_sellers, skipped_unprofitable, failed_count
+    return (listed_details, skipped_no_stock, skipped_no_au,
+            skipped_few_sellers, skipped_unprofitable, skipped_restricted, failed_count)
 
 
 def build_email(
     listed_details, skipped_no_stock, skipped_no_au,
-    skipped_few_sellers, skipped_unprofitable, failed_count,
+    skipped_few_sellers, skipped_unprofitable, skipped_restricted, failed_count,
     min_sellers: int, dry_run: bool,
 ) -> tuple:
     success_count = len(listed_details)
@@ -884,19 +942,26 @@ def build_email(
         f"新規出品 {success_count}件 / 失敗 {failed_count}件"
     )
     total_checked = (success_count + skipped_no_stock + skipped_no_au +
-                     skipped_few_sellers + skipped_unprofitable + failed_count)
+                     skipped_few_sellers + skipped_unprofitable + skipped_restricted + failed_count)
     lines = [
         f"=== {dry_label}カタログ発掘 結果サマリー (競合{min_sellers}人以上) ===",
         "",
-        f"JPカタログ候補ASIN:              {total_checked}件",
-        f"新規出品{'予定' if dry_run else '完了'}:                  {success_count}件",
-        f"スキップ（JP在庫なし）:          {skipped_no_stock}件",
-        f"スキップ（AU競合なし/利益不足）: {skipped_no_au}件",
-        f"スキップ（競合{min_sellers}人未満）:         {skipped_few_sellers}件",
-        f"スキップ（競合価格が赤字ライン）:{skipped_unprofitable}件",
-        f"失敗:                          {failed_count}件",
+        f"JPカタログ候補ASIN:                   {total_checked}件",
+        f"新規出品{'予定' if dry_run else '完了'}:                         {success_count}件",
+        f"スキップ（JP在庫なし）:               {skipped_no_stock}件",
+        f"スキップ（AU競合なし/利益不足）:      {skipped_no_au}件",
+        f"スキップ（競合{min_sellers}人未満）:              {skipped_few_sellers}件",
+        f"スキップ（競合価格が赤字ライン）:     {skipped_unprofitable}件",
+        f"スキップ（認証不可・要申請）:         {skipped_restricted}件",
+        f"失敗:                                 {failed_count}件",
         "",
     ]
+    if skipped_restricted > 0:
+        lines.append(
+            "⚠️ 認証不可の商品が多い場合、出品したいカテゴリの申請を"
+            "Seller Central > カタログ > 制限された商品 から行ってください。"
+        )
+        lines.append("")
     if listed_details:
         lines.append(f"--- 新規出品{'予定' if dry_run else '完了'}リスト ({success_count}件) ---")
         for item in listed_details:
@@ -925,7 +990,8 @@ def main():
     logger.info("[catalog_discover] 設定: max_new=%d, min_sellers=%d, max_pages=%d",
                 args.max_new, args.min_sellers, args.max_pages)
 
-    listed_details, skipped_no_stock, skipped_no_au, skipped_few_sellers, skipped_unprofitable, failed_count = discover_and_list(
+    (listed_details, skipped_no_stock, skipped_no_au,
+     skipped_few_sellers, skipped_unprofitable, skipped_restricted, failed_count) = discover_and_list(
         min_sellers=args.min_sellers,
         max_new=args.max_new,
         max_pages=args.max_pages,
@@ -934,7 +1000,7 @@ def main():
 
     subject, body = build_email(
         listed_details, skipped_no_stock, skipped_no_au,
-        skipped_few_sellers, skipped_unprofitable, failed_count,
+        skipped_few_sellers, skipped_unprofitable, skipped_restricted, failed_count,
         min_sellers=args.min_sellers,
         dry_run=args.dry_run,
     )
