@@ -21,6 +21,12 @@
     "リモコン", "電卓", "体温計", "血圧計"
   ],
 
+  "watch_brands": [
+    "casio", "g-shock", "g shock", "baby-g", "baby g", "edifice", "lineage", "wave ceptor",
+    "seiko", "citizen", "orient", "wicca",
+    "時計", "watch"
+  ],
+
   "au_electrical_compliance": [
     "travel adapter", "travel plug", "plug adapter", "power adapter", "ac adapter",
     "トラベルアダプター", "変換プラグ", "海外旅行用"
