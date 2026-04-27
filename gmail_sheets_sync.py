@@ -325,6 +325,13 @@ def calc_profit(revenue_jpy: int, cost_jpy: int | None, ship_jpy: int) -> int | 
     return revenue_jpy - cost_jpy - ship_jpy
 
 
+_SOURCE_LABEL = {
+    "rakuten":   "楽天",
+    "amazon_jp": "Amazon JP",
+    "yahoo":     "Yahoo",
+}
+
+
 def add_order_row(ws, order: dict, exchange_rate: float):
     """AU注文を新しい行として追加"""
     aud = order.get("aud_price")
@@ -333,62 +340,99 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     asin = order.get("asin", "")
     au_url = f"https://www.amazon.com.au/dp/{asin}" if asin else ""
 
+    # 追加先の行番号を事前に取得（数式に使うため）
+    row_num = len(ws.get_all_values()) + 1
+
+    # 粗利 = 入金 - 仕入 - 送料 をSpreadsheetの数式で自動計算
+    # 仕入が未入力でも「入金 - 送料」だけ先に確認できる
+    i_col = chr(ord("A") + COL["revenue_jpy"] - 1)   # I
+    j_col = chr(ord("A") + COL["cost_jpy"] - 1)       # J
+    k_col = chr(ord("A") + COL["ship_jpy"] - 1)       # K
+    profit_formula = f'=IFERROR({i_col}{row_num}-{j_col}{row_num}-{k_col}{row_num},"")'
+
     row = [""] * 12
-    row[COL["date"] - 1]       = order.get("date", "")
-    row[COL["order_id"] - 1]   = order.get("order_id", "")
-    row[COL["asin"] - 1]       = asin
-    row[COL["url"] - 1]        = au_url
-    row[COL["status"] - 1]     = "未発送"
-    row[COL["source"] - 1]     = ""
-    row[COL["title"] - 1]      = order.get("title", "")[:50]
-    row[COL["aud"] - 1]        = aud or ""
+    row[COL["date"] - 1]        = order.get("date", "")
+    row[COL["order_id"] - 1]    = order.get("order_id", "")
+    row[COL["asin"] - 1]        = asin
+    row[COL["url"] - 1]         = au_url
+    row[COL["status"] - 1]      = "未発送"
+    row[COL["source"] - 1]      = ""
+    row[COL["title"] - 1]       = order.get("title", "")[:50]
+    row[COL["aud"] - 1]         = aud or ""
     row[COL["revenue_jpy"] - 1] = revenue_jpy
-    row[COL["cost_jpy"] - 1]   = ""   # 手動入力
-    row[COL["ship_jpy"] - 1]   = ""   # 手動入力（実費確定後に記入）
-    row[COL["profit_jpy"] - 1] = ""   # 手動入力
+    row[COL["cost_jpy"] - 1]    = ""          # 仕入れメールで自動入力
+    row[COL["ship_jpy"] - 1]    = SHIP_JPY    # デフォルト送料（実費確定後に手動修正可）
+    row[COL["profit_jpy"] - 1]  = profit_formula  # ← 自動計算式
 
     ws.append_row(row, value_input_option="USER_ENTERED")
-    logger.info("[sheets] 注文追加: %s (%s)", order["order_id"], order.get("title", "")[:30])
+    logger.info("[sheets] 注文追加: %s (%s) 送料¥%d 自動設定",
+                order["order_id"], order.get("title", "")[:30], SHIP_JPY)
+
+
+def _title_match_score(sheet_title: str, purchase_name: str) -> int:
+    """シートのタイトルと仕入れ商品名のマッチスコアを返す（高いほど一致）"""
+    if not sheet_title or not purchase_name:
+        return 0
+    t = sheet_title.lower()
+    p = purchase_name.lower()
+    words = [w for w in re.split(r"[\s\-_/【】「」（）()]+", p) if len(w) >= 3]
+    if not words:
+        return 0
+    return sum(1 for w in words if w in t)
 
 
 def update_purchase_info(ws, purchase: dict, order_ids: dict, exchange_rate: float):
     """
     仕入れメールの情報で既存行を更新。
-    商品名の部分一致でマッチングを試みる。
+    スコアベースのタイトルマッチングで最も一致する未仕入れ行を特定する。
     """
-    cost_jpy = purchase["cost_jpy"]
+    cost_jpy    = purchase["cost_jpy"]
     product_name = purchase.get("product_name", "")
-    source = purchase["source"]
+    source_key  = purchase["source"]
+    source_label = _SOURCE_LABEL.get(source_key, source_key)
 
-    # 未入力の仕入れ行を探す
     all_values = ws.get_all_values()
+
+    # 仕入れ未入力 & 未発送の行をスコアリング
+    best_row_num = None
+    best_score   = -1
+
     for i, row in enumerate(all_values):
-        if len(row) < 12:
+        if len(row) < COL["cost_jpy"]:
             continue
-        existing_cost = row[COL["cost_jpy"] - 1].strip()
+        existing_cost   = row[COL["cost_jpy"] - 1].strip()
         existing_source = row[COL["source"] - 1].strip()
-        title = row[COL["title"] - 1].strip()
-        status = row[COL["status"] - 1].strip()
+        title           = row[COL["title"] - 1].strip()
+        status          = row[COL["status"] - 1].strip()
 
-        # 仕入れ未入力 + 未発送 + タイトル部分一致（or 空でもOK）
-        if existing_cost == "" and status in ("未発送", ""):
-            if not product_name or any(w in title for w in product_name.split()[:3] if len(w) > 2):
-                row_num = i + 1
-                revenue_jpy_str = row[COL["revenue_jpy"] - 1].strip()
-                revenue_jpy = int(revenue_jpy_str.replace(",", "")) if revenue_jpy_str else 0
-                ship_jpy_str = row[COL["ship_jpy"] - 1].strip()
-                ship_jpy = int(ship_jpy_str.replace(",", "")) if ship_jpy_str else SHIP_JPY
-                profit = calc_profit(revenue_jpy, cost_jpy, ship_jpy)
+        # 仕入れ未入力 & 未発送のみ対象
+        if existing_cost != "" or status not in ("未発送", ""):
+            continue
 
-                ws.update_cell(row_num, COL["source"], source)
-                ws.update_cell(row_num, COL["cost_jpy"], cost_jpy)
-                if profit is not None:
-                    ws.update_cell(row_num, COL["profit_jpy"], profit)
-                logger.info("[sheets] 仕入れ更新: 行%d %s ¥%d", row_num, title[:30], cost_jpy)
-                return True
+        score = _title_match_score(title, product_name)
+        # 商品名がない場合は最初の空行をフォールバックとして使う
+        if not product_name:
+            score = 0  # スコア0でも候補にする
+        if score > best_score:
+            best_score   = score
+            best_row_num = i + 1
 
-    logger.warning("[sheets] 仕入れ対象行が見つかりません: %s ¥%d", product_name[:30], cost_jpy)
-    return False
+    if best_row_num is None:
+        logger.warning("[sheets] 仕入れ対象行が見つかりません: %s ¥%d",
+                       product_name[:30], cost_jpy)
+        return False
+
+    # スコアが低すぎる場合は警告ログを出す（0=マッチなし・フォールバック）
+    if best_score == 0 and product_name:
+        logger.warning("[sheets] タイトル一致なし → 最初の未仕入れ行(行%d)に記録: %s",
+                       best_row_num, product_name[:30])
+
+    # 仕入れ・仕入れ先を更新（粗利は数式で自動計算されるため更新不要）
+    ws.update_cell(best_row_num, COL["source"],   source_label)
+    ws.update_cell(best_row_num, COL["cost_jpy"], cost_jpy)
+    logger.info("[sheets] 仕入れ自動入力: 行%d ¥%d [%s] スコア=%d",
+                best_row_num, cost_jpy, source_label, best_score)
+    return True
 
 
 # ── main ──────────────────────────────────────────────────────
@@ -441,15 +485,15 @@ def main():
         added += 1
         time.sleep(1)  # Sheets APIレート制限対策
 
-    # 仕入れ・送料・粗利は手動入力のため自動更新しない
+    # 仕入れメール → シート自動反映
     updated = 0
-    # for purchase in purchases:
-    #     if update_purchase_info(ws, purchase, order_ids, exchange_rate):
-    #         updated += 1
-    #     time.sleep(1)
+    for purchase in purchases:
+        if update_purchase_info(ws, purchase, order_ids, exchange_rate):
+            updated += 1
+        time.sleep(1)
 
-    logger.info("[sheets] 完了: 注文追加 %d件 / 仕入れ更新 %d件", added, updated)
-    print(f"\n注文追加: {added}件 / 仕入れ更新: {updated}件")
+    logger.info("[sheets] 完了: 注文追加 %d件 / 仕入れ自動入力 %d件", added, updated)
+    print(f"\n注文追加: {added}件 / 仕入れ自動入力: {updated}件")
 
 
 if __name__ == "__main__":
