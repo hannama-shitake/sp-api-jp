@@ -370,13 +370,12 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     row[COL["title"] - 1]       = order.get("title", "")[:50]
     row[COL["aud"] - 1]         = aud or ""       # H: AUDは数値（空でも後から手入力可）
     row[COL["revenue_jpy"] - 1] = revenue_formula  # I: 数式（Hが入れば自動計算）
-    row[COL["cost_jpy"] - 1]    = ""               # J: 仕入れメールで自動入力
-    row[COL["ship_jpy"] - 1]    = SHIP_JPY         # K: デフォルト¥3,800（手動修正可）
-    row[COL["profit_jpy"] - 1]  = profit_formula   # L: 数式（J入力と同時に自動計算）
+    row[COL["cost_jpy"] - 1]    = ""               # J: 手動入力
+    row[COL["ship_jpy"] - 1]    = ""               # K: 手動入力
+    row[COL["profit_jpy"] - 1]  = profit_formula   # L: 数式（J・K入力と同時に自動計算）
 
     ws.append_row(row, value_input_option="USER_ENTERED")
-    logger.info("[sheets] 注文追加: %s AUD$%s 送料¥%d",
-                order["order_id"], aud or "?", SHIP_JPY)
+    logger.info("[sheets] 注文追加: %s AUD$%s", order["order_id"], aud or "?")
 
 
 def _title_match_score(sheet_title: str, purchase_name: str) -> int:
@@ -495,15 +494,9 @@ def main():
         added += 1
         time.sleep(1)  # Sheets APIレート制限対策
 
-    # 仕入れメール → シート自動反映
-    updated = 0
-    for purchase in purchases:
-        if update_purchase_info(ws, purchase, order_ids, exchange_rate):
-            updated += 1
-        time.sleep(1)
-
-    logger.info("[sheets] 完了: 注文追加 %d件 / 仕入れ自動入力 %d件", added, updated)
-    print(f"\n注文追加: {added}件 / 仕入れ自動入力: {updated}件")
+    # 仕入れ・送料は手動入力のため自動反映なし
+    logger.info("[sheets] 完了: 注文追加 %d件", added)
+    print(f"\n注文追加: {added}件")
 
 
 if __name__ == "__main__":
