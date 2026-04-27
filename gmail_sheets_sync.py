@@ -143,23 +143,46 @@ def parse_amazon_au_order(msg) -> dict | None:
     if m:
         order_id = m.group(1).strip()
 
-    # ASIN
+    # ASIN（複数パターンで探す）
     asin = ""
-    m = re.search(r"ASIN[:\s]*([A-Z0-9]{10})", body, re.IGNORECASE)
+    # パターン1: "ASIN: XXXXXXXXXX"
+    m = re.search(r"ASIN[:\s]+([B][0-9A-Z]{9})", body, re.IGNORECASE)
     if m:
         asin = m.group(1).strip()
+    # パターン2: amazon.com.au/dp/XXXXXXXXXX のURL形式
+    if not asin:
+        m = re.search(r"amazon\.com\.au/(?:dp|gp/product)/([B][0-9A-Z]{9})", body, re.IGNORECASE)
+        if m:
+            asin = m.group(1).strip()
+    # パターン3: 件名の先頭にASINが付いている場合（例: "B0DQQZQ19M 商品名"）
+    if not asin:
+        m = re.match(r"^([B][0-9A-Z]{9})\s+", re.sub(
+            r"^(Sold,?\s*ship\s*now[:\s]*|出荷してください[：:\s]*)", "", subject, flags=re.IGNORECASE
+        ).strip())
+        if m:
+            asin = m.group(1).strip()
 
-    # 価格（AUD）
+    # 価格（AUD）- 複数パターン
     aud_price = None
-    m = re.search(r"(?:Item price|Price|Total)[:\s]*(?:AUD|A\$|AU\$)?\s*([\d,]+\.?\d*)", body, re.IGNORECASE)
-    if m:
-        try:
-            aud_price = float(m.group(1).replace(",", ""))
-        except ValueError:
-            pass
+    for pat in [
+        r"Item\s*(?:subtotal|price)[:\s]*(?:AUD|A\$|AU\$)\s*([\d,]+\.?\d*)",
+        r"(?:AUD|A\$|AU\$)\s*([\d,]+\.?\d*)",
+        r"(?:Item price|Price|Total)[:\s]*(?:AUD|A\$|AU\$)?\s*([\d,]+\.?\d*)",
+    ]:
+        m = re.search(pat, body, re.IGNORECASE)
+        if m:
+            try:
+                val = float(m.group(1).replace(",", ""))
+                if 0.5 < val < 100000:   # 明らかに異常な値を除外
+                    aud_price = val
+                    break
+            except ValueError:
+                pass
 
-    # 商品名（件名から）
+    # 商品名（件名から: "Sold, ship now: 商品名" の形式）
     title = re.sub(r"^(Sold,?\s*ship\s*now[:\s]*|出荷してください[：:\s]*)", "", subject, flags=re.IGNORECASE).strip()
+    # 件名の先頭にASINが混入している場合は除去
+    title = re.sub(r"^[B][0-9A-Z]{9}\s+", "", title).strip()
 
     # 日付
     date_str = ""
