@@ -334,21 +334,31 @@ _SOURCE_LABEL = {
 
 def add_order_row(ws, order: dict, exchange_rate: float):
     """AU注文を新しい行として追加"""
-    aud = order.get("aud_price")
-    revenue_jpy = calc_revenue_jpy(aud, exchange_rate) if aud else ""
-
-    asin = order.get("asin", "")
+    asin   = order.get("asin", "")
+    aud    = order.get("aud_price")
     au_url = f"https://www.amazon.com.au/dp/{asin}" if asin else ""
 
     # 追加先の行番号を事前に取得（数式に使うため）
     row_num = len(ws.get_all_values()) + 1
 
-    # 粗利 = 入金 - 仕入 - 送料 をSpreadsheetの数式で自動計算
-    # 仕入が未入力でも「入金 - 送料」だけ先に確認できる
-    i_col = chr(ord("A") + COL["revenue_jpy"] - 1)   # I
-    j_col = chr(ord("A") + COL["cost_jpy"] - 1)       # J
-    k_col = chr(ord("A") + COL["ship_jpy"] - 1)       # K
-    profit_formula = f'=IFERROR({i_col}{row_num}-{j_col}{row_num}-{k_col}{row_num},"")'
+    # 列アルファベット（COL定義から動的に生成）
+    def col_letter(col_key):
+        return chr(ord("A") + COL[col_key] - 1)
+
+    h = col_letter("aud")           # H: AUD
+    i = col_letter("revenue_jpy")   # I: 入金(JPY)
+    j = col_letter("cost_jpy")      # J: 仕入(JPY)
+    k = col_letter("ship_jpy")      # K: 送料(JPY)
+
+    # I列: 入金(JPY) = AUD × (1 - Amazon手数料15%) × リアルタイム為替
+    # GOOGLEFINANCE("CURRENCY:AUDJPY") = 1 AUD = X JPY（リアルタイム）
+    revenue_formula = (
+        f'=IFERROR(INT({h}{row_num}*(1-{AU_FEE_RATE})'
+        f'*GOOGLEFINANCE("CURRENCY:AUDJPY")),"")'
+    )
+
+    # L列: 粗利(JPY) = 入金 - 仕入 - 送料（仕入入力と同時に自動計算）
+    profit_formula = f'=IFERROR({i}{row_num}-{j}{row_num}-{k}{row_num},"")'
 
     row = [""] * 12
     row[COL["date"] - 1]        = order.get("date", "")
@@ -358,15 +368,15 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     row[COL["status"] - 1]      = "未発送"
     row[COL["source"] - 1]      = ""
     row[COL["title"] - 1]       = order.get("title", "")[:50]
-    row[COL["aud"] - 1]         = aud or ""
-    row[COL["revenue_jpy"] - 1] = revenue_jpy
-    row[COL["cost_jpy"] - 1]    = ""          # 仕入れメールで自動入力
-    row[COL["ship_jpy"] - 1]    = SHIP_JPY    # デフォルト送料（実費確定後に手動修正可）
-    row[COL["profit_jpy"] - 1]  = profit_formula  # ← 自動計算式
+    row[COL["aud"] - 1]         = aud or ""       # H: AUDは数値（空でも後から手入力可）
+    row[COL["revenue_jpy"] - 1] = revenue_formula  # I: 数式（Hが入れば自動計算）
+    row[COL["cost_jpy"] - 1]    = ""               # J: 仕入れメールで自動入力
+    row[COL["ship_jpy"] - 1]    = SHIP_JPY         # K: デフォルト¥3,800（手動修正可）
+    row[COL["profit_jpy"] - 1]  = profit_formula   # L: 数式（J入力と同時に自動計算）
 
     ws.append_row(row, value_input_option="USER_ENTERED")
-    logger.info("[sheets] 注文追加: %s (%s) 送料¥%d 自動設定",
-                order["order_id"], order.get("title", "")[:30], SHIP_JPY)
+    logger.info("[sheets] 注文追加: %s AUD$%s 送料¥%d",
+                order["order_id"], aud or "?", SHIP_JPY)
 
 
 def _title_match_score(sheet_title: str, purchase_name: str) -> int:
