@@ -336,7 +336,7 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     """AU注文を新しい行として追加"""
     asin   = order.get("asin", "")
     aud    = order.get("aud_price")
-    au_url = f"https://www.amazon.com.au/dp/{asin}" if asin else ""
+    au_url = f"https://www.amazon.co.jp/dp/{asin}" if asin else ""
 
     # 追加先の行番号を事前に取得（数式に使うため）
     row_num = len(ws.get_all_values()) + 1
