@@ -179,6 +179,18 @@ def parse_amazon_au_order(msg) -> dict | None:
             except ValueError:
                 pass
 
+    # Amazon手数料引き後の実入金額（"Your earnings: AUD XX.XX"）
+    earnings_aud = None
+    m = re.search(r"Your\s+earnings[:\s]+(?:AUD|A\$|AU\$)\s*([\d,]+\.?\d*)", body, re.IGNORECASE)
+    if m:
+        try:
+            earnings_aud = float(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+    # フォールバック: 販売価格から手数料を引いて推定
+    if earnings_aud is None and aud_price:
+        earnings_aud = round(aud_price * (1 - AU_FEE_RATE), 2)
+
     # 商品名（件名から: "Sold, ship now: 商品名" の形式）
     title = re.sub(r"^(Sold,?\s*ship\s*now[:\s]*|出荷してください[：:\s]*)", "", subject, flags=re.IGNORECASE).strip()
     # 件名の先頭にASINが混入している場合は除去
@@ -203,6 +215,7 @@ def parse_amazon_au_order(msg) -> dict | None:
         "asin": asin,
         "title": title,
         "aud_price": aud_price,
+        "earnings_aud": earnings_aud,  # 手数料引き後の実入金AUD
     }
 
 
@@ -350,11 +363,11 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     j = col_letter("cost_jpy")      # J: 仕入(JPY)
     k = col_letter("ship_jpy")      # K: 送料(JPY)
 
-    # I列: 入金(JPY) = AUD × (1 - Amazon手数料15%) × リアルタイム為替
-    # GOOGLEFINANCE("CURRENCY:AUDJPY") = 1 AUD = X JPY（リアルタイム）
+    # I列: 入金(JPY) = Amazonメール記載の実入金AUD × リアルタイム為替
+    # earnings_aud はメールの "Your earnings: AUD XX.XX" から取得（手数料引き後）
+    earnings = order.get("earnings_aud") or round((aud or 0) * (1 - AU_FEE_RATE), 2)
     revenue_formula = (
-        f'=IFERROR(INT({h}{row_num}*(1-{AU_FEE_RATE})'
-        f'*GOOGLEFINANCE("CURRENCY:AUDJPY")),"")'
+        f'=IFERROR(INT({earnings}*GOOGLEFINANCE("CURRENCY:AUDJPY")),"")'
     )
 
     # L列: 粗利(JPY) = 入金 - 仕入 - 送料（仕入入力と同時に自動計算）
