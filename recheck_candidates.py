@@ -134,6 +134,55 @@ def _get_au_prices(asins: list) -> dict:
     return result
 
 
+def _dim_to_cm(dim_obj: dict):
+    """寸法オブジェクトをcm単位に変換"""
+    value = dim_obj.get("value")
+    unit = (dim_obj.get("unit") or "").lower()
+    if value is None:
+        return None
+    value = float(value)
+    if "centimeter" in unit or unit == "cm":
+        return value
+    elif "inch" in unit:
+        return value * 2.54
+    elif "millimeter" in unit or unit == "mm":
+        return value / 10.0
+    elif "meter" in unit:
+        return value * 100.0
+    return None
+
+
+def _extract_effective_weight_kg(payload: dict):
+    """実重量と容積重量(L×W×H/5000)の大きい方を返す（DHL課金基準）"""
+    try:
+        dims = (payload or {}).get("dimensions") or []
+        actual_kg = None
+        vol_kg = None
+        for dim in dims:
+            w = dim.get("weight") or {}
+            val = w.get("value")
+            unit = (w.get("unit") or "").lower()
+            if val is not None:
+                val = float(val)
+                if "kilogram" in unit or unit == "kg":
+                    actual_kg = val
+                elif "gram" in unit:
+                    actual_kg = val / 1000.0
+                elif "pound" in unit or unit == "lb":
+                    actual_kg = val * 0.453592
+                elif "ounce" in unit or unit == "oz":
+                    actual_kg = val * 0.0283495
+            l_cm = _dim_to_cm(dim.get("length") or {})
+            w_cm = _dim_to_cm(dim.get("width") or {})
+            h_cm = _dim_to_cm(dim.get("height") or {})
+            if l_cm and w_cm and h_cm:
+                vol_kg = round((l_cm * w_cm * h_cm) / 5000.0, 3)
+        candidates = [k for k in [actual_kg, vol_kg] if k is not None]
+        return max(candidates) if candidates else None
+    except Exception:
+        return None
+
+
 def _check_ng(title: str) -> tuple:
     """NGワードチェック (is_ng, matched_word)"""
     import json
@@ -332,25 +381,8 @@ def main():
                 )
                 payload   = cat_resp.payload or {}
                 title     = (payload.get("summaries") or [{}])[0].get("itemName", "") or ""
-                weight_kg = None
-                try:
-                    dims = payload.get("dimensions") or []
-                    for dim in dims:
-                        w = dim.get("weight") or {}
-                        v = w.get("value")
-                        u = (w.get("unit") or "").lower()
-                        if v is None:
-                            continue
-                        v = float(v)
-                        if "kilogram" in u or u == "kg":
-                            weight_kg = v
-                        elif "gram" in u:
-                            weight_kg = v / 1000.0
-                        elif "pound" in u:
-                            weight_kg = v * 0.453592
-                        break
-                except Exception:
-                    pass
+                # 実重量 vs 容積重量(L×W×H/5000) の大きい方（DHL課金基準）
+                weight_kg = _extract_effective_weight_kg(payload)
             except Exception:
                 pass
 

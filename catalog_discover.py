@@ -547,28 +547,72 @@ def _check_ng_words(title: str, asin: str) -> tuple:
     return False, ""
 
 
-def _extract_weight_kg(payload: dict) -> _Optional_float:
+def _dim_to_cm(dim_obj: dict) -> _Optional_float:
+    """寸法オブジェクト {"value": X, "unit": "..."} をcm単位に変換する"""
+    value = dim_obj.get("value")
+    unit = (dim_obj.get("unit") or "").lower()
+    if value is None:
+        return None
+    value = float(value)
+    if "centimeter" in unit or unit == "cm":
+        return value
+    elif "inch" in unit:
+        return value * 2.54
+    elif "millimeter" in unit or unit == "mm":
+        return value / 10.0
+    elif "meter" in unit:   # meter（centimeterを含まない）
+        return value * 100.0
+    return None
+
+
+def _extract_effective_weight_kg(payload: dict) -> _Optional_float:
     """
-    CatalogItems API レスポンスの dimensions から重量(kg)を取得する。
-    取得できない場合は None を返す。
+    CatalogItems API レスポンスから有効重量(kg)を返す。
+
+    DHL は「実重量」と「容積重量(L×W×H/5000)」の大きい方で課金する。
+    例: マウスパッド 45×40×2cm → 容積重量 0.72kg（実重量 0.35kg より大）
+        大型フィギュア箱 35×30×25cm → 容積重量 5.25kg（実重量 1.2kg より大）
+
+    取得できない場合は None を返す（送料はデフォルト値を使用）。
     """
     try:
         dims = (payload or {}).get("dimensions") or []
+        actual_kg = None
+        vol_kg = None
+
         for dim in dims:
+            # ── 実重量 ──
             w = dim.get("weight") or {}
-            value = w.get("value")
+            val = w.get("value")
             unit = (w.get("unit") or "").lower()
-            if value is None:
-                continue
-            value = float(value)
-            if "kilogram" in unit or unit == "kg":
-                return value
-            elif "gram" in unit:
-                return value / 1000.0
-            elif "pound" in unit or unit == "lb":
-                return value * 0.453592
-            elif "ounce" in unit or unit == "oz":
-                return value * 0.0283495
+            if val is not None:
+                val = float(val)
+                if "kilogram" in unit or unit == "kg":
+                    actual_kg = val
+                elif "gram" in unit:
+                    actual_kg = val / 1000.0
+                elif "pound" in unit or unit == "lb":
+                    actual_kg = val * 0.453592
+                elif "ounce" in unit or unit == "oz":
+                    actual_kg = val * 0.0283495
+
+            # ── 容積重量 = L × W × H(cm) ÷ 5000 ──
+            l_cm = _dim_to_cm(dim.get("length") or {})
+            w_cm = _dim_to_cm(dim.get("width") or {})
+            h_cm = _dim_to_cm(dim.get("height") or {})
+            if l_cm and w_cm and h_cm:
+                vol_kg = round((l_cm * w_cm * h_cm) / 5000.0, 3)
+
+        candidates = [k for k in [actual_kg, vol_kg] if k is not None]
+        if not candidates:
+            return None
+        effective = max(candidates)
+        if vol_kg and actual_kg and vol_kg > actual_kg * 1.2:
+            logger.debug(
+                "[catalog_discover] 容積重量が実重量より大: 実%.2fkg → 容積%.2fkg（有効）",
+                actual_kg, vol_kg,
+            )
+        return effective
     except Exception:
         pass
     return None
@@ -881,7 +925,7 @@ def discover_and_list(
             )
             payload = cat_resp.payload or {}
             title = (payload.get("summaries") or [{}])[0].get("itemName", "") or ""
-            weight_kg = _extract_weight_kg(payload)
+            weight_kg = _extract_effective_weight_kg(payload)  # 実重量 vs 容積重量の大きい方
         except Exception:
             title = ""
             weight_kg = None
