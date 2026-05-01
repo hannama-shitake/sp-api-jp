@@ -260,6 +260,13 @@ def scrape_seller_asins(
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
             )
             page = context.new_page()
+            # 画像・フォント・メディアをブロックして帯域節約（住宅プロキシ1GB/月対策）
+            page.route(
+                "**/*",
+                lambda route: route.abort()
+                if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                else route.continue_(),
+            )
 
             seller_new = 0
             # ソート順をランダムに選択（毎セラーごと）→ 同じセラーから異なる商品面を発掘

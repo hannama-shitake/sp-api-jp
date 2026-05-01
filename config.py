@@ -90,12 +90,8 @@ SHIPCO_MAX_DHL_JPY  = int(os.getenv("SHIPCO_MAX_DHL_JPY", "5000"))  # DHL上限(
 # ── プロキシ設定（スクレイピング用）─────────────────────────────────
 PROXY_USER = os.getenv("PROXY_USER", "")
 PROXY_PASS = os.getenv("PROXY_PASS", "")
-# IPアドレス:ポート のリスト（負荷分散用）
-PROXY_LIST = [
-    ("31.59.20.176",    "6754"),
-    ("198.23.239.134",  "6540"),
-    ("45.38.107.97",    "6014"),
-]
+# Webshare Rotating Residential: p.webshare.io:80（サーバー側でIP自動ローテーション）
+PROXY_LIST = [("p.webshare.io", "80")]
 
 # ── 競合セラー URL リスト（catalog_discover で使用）────────────────
 # 優先度: seller_urls.txt（リポジトリ管理）> 環境変数 SELLER_URLS
