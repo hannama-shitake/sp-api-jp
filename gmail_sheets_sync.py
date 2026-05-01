@@ -31,6 +31,20 @@ from google.oauth2.service_account import Credentials
 from apis.exchange_rate import get_jpy_to_aud
 from utils.logger import get_logger
 
+# SP-API Orders（ASINフォールバック用）
+try:
+    from sp_api.api import Orders
+    from sp_api.base import Marketplaces
+    import config as _cfg
+    _SP_CREDENTIALS = {
+        "refresh_token": _cfg.AMAZON_AU_CREDENTIALS["refresh_token"],
+        "lwa_app_id":    _cfg.AMAZON_AU_CREDENTIALS["lwa_app_id"],
+        "lwa_client_secret": _cfg.AMAZON_AU_CREDENTIALS["lwa_client_secret"],
+    }
+    _SP_AVAILABLE = bool(_SP_CREDENTIALS["refresh_token"])
+except Exception:
+    _SP_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 # ── 設定 ──────────────────────────────────────────────────────
@@ -119,6 +133,26 @@ def fetch_recent_emails(mail: imaplib.IMAP4_SSL, folder: str = "INBOX") -> list:
     return messages
 
 
+# ── SP-API Orders ASINフォールバック ─────────────────────────────
+
+def _get_asin_via_orders_api(order_id: str) -> str:
+    """SP-API OrdersからASINを取得（メール解析で取れなかった場合のフォールバック）"""
+    if not _SP_AVAILABLE:
+        return ""
+    try:
+        client = Orders(credentials=_SP_CREDENTIALS, marketplace=Marketplaces.AU)
+        res = client.get_order_items(order_id)
+        items = (res.payload or {}).get("OrderItems", [])
+        if items:
+            asin = items[0].get("ASIN", "")
+            if asin:
+                logger.info("[gmail] SP-API Orders フォールバック: %s → ASIN=%s", order_id, asin)
+                return asin
+    except Exception as e:
+        logger.debug("[gmail] SP-API Orders フォールバック失敗: %s %s", order_id, e)
+    return ""
+
+
 # ── Amazon AU 注文メール解析 ───────────────────────────────────
 
 def parse_amazon_au_order(msg) -> dict | None:
@@ -161,6 +195,14 @@ def parse_amazon_au_order(msg) -> dict | None:
         ).strip())
         if m:
             asin = m.group(1).strip()
+    # パターン4: 数字のみASIN（旧形式、例: "0763617911"）
+    if not asin:
+        m = re.search(r"ASIN[:\s]+([0-9A-Z]{10})", body, re.IGNORECASE)
+        if m:
+            asin = m.group(1).strip()
+    # パターン5: SP-API Ordersフォールバック（JAN/EAN商品など）
+    if not asin and order_id and _SP_AVAILABLE:
+        asin = _get_asin_via_orders_api(order_id)
 
     # 価格（AUD）- 複数パターン
     aud_price = None
