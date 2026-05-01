@@ -22,14 +22,14 @@ on:
       max_pages:
         description: 'セラーあたり最大スクレイピングページ数'
         required: false
-        default: '10'
+        default: '5'
   schedule:
     - cron: '0 16 * * *'  # 毎日 01:00 JST（毎日実行）
 
 jobs:
   catalog-discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
 
     steps:
       - uses: actions/checkout@v4
