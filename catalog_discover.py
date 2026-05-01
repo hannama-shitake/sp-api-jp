@@ -205,6 +205,9 @@ def scrape_seller_asins(
     all_asins: list = []
     seen = set(existing_asins)
 
+    # プロキシリスト（セラーごとにローテーション）
+    _proxy_list = config.PROXY_LIST if config.PROXY_USER else []
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True,
@@ -215,26 +218,6 @@ def scrape_seller_asins(
                 "--disable-dev-shm-usage",
             ],
         )
-        context = browser.new_context(
-            viewport={
-                "width":  random.choice([1280, 1366, 1440, 1920]),
-                "height": random.choice([768, 800, 900, 1080]),
-            },
-            user_agent=random.choice(_USER_AGENTS),
-            locale="en-AU",
-            timezone_id="Australia/Sydney",
-            # 自動化フラグを隠す
-            extra_http_headers={
-                "Accept-Language": "en-AU,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
-        )
-        # navigator.webdriver を隠す
-        context.add_init_script(
-            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
-        )
-
-        page = context.new_page()
 
         for raw_url in seller_urls:
             m = re.search(r"me=([A-Z0-9]+)", raw_url)
@@ -242,8 +225,41 @@ def scrape_seller_asins(
                 logger.warning("[catalog_discover] seller_id 抽出失敗: %s", raw_url)
                 continue
             seller_id = m.group(1)
-            logger.info("[catalog_discover] Playwright: seller=%s 開始（最大%dページ）",
-                        seller_id, max_pages)
+
+            # ── セラーごとにプロキシをローテーション ──
+            proxy_cfg = None
+            if _proxy_list:
+                host, port = random.choice(_proxy_list)
+                proxy_cfg = {
+                    "server":   f"http://{host}:{port}",
+                    "username": config.PROXY_USER,
+                    "password": config.PROXY_PASS,
+                }
+                logger.info("[catalog_discover] Playwright: seller=%s 開始（proxy=%s:%s）",
+                            seller_id, host, port)
+            else:
+                logger.info("[catalog_discover] Playwright: seller=%s 開始（proxyなし）",
+                            seller_id)
+
+            # セラーごとに新しいコンテキストを作成（プロキシ・UA をリセット）
+            context = browser.new_context(
+                viewport={
+                    "width":  random.choice([1280, 1366, 1440, 1920]),
+                    "height": random.choice([768, 800, 900, 1080]),
+                },
+                user_agent=random.choice(_USER_AGENTS),
+                locale="en-AU",
+                timezone_id="Australia/Sydney",
+                proxy=proxy_cfg,
+                extra_http_headers={
+                    "Accept-Language": "en-AU,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+            )
+            context.add_init_script(
+                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+            )
+            page = context.new_page()
 
             seller_new = 0
             # ソート順をランダムに選択（毎セラーごと）→ 同じセラーから異なる商品面を発掘
@@ -336,10 +352,11 @@ def scrape_seller_asins(
                     break
 
             logger.info("[catalog_discover] seller=%s 完了: %d件収集", seller_id, seller_new)
+            # セラーごとのコンテキストを閉じる（Cookie・セッションをリセット）
+            context.close()
             # セラー間は長めに待つ（急ぎすぎない）
             _human_delay(5.0, 10.0)
 
-        context.close()
         browser.close()
 
     logger.info("[catalog_discover] 全セラー 新規ASIN候補: %d件", len(all_asins))
