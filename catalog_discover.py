@@ -260,11 +260,11 @@ def scrape_seller_asins(
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
             )
             page = context.new_page()
-            # 画像・フォント・メディアをブロックして帯域節約（住宅プロキシ1GB/月対策）
+            # 画像・JS・CSS・フォント・メディアをブロックして帯域節約（data-asinはHTMLに含まれるため不要）
             page.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                if route.request.resource_type in ("image", "media", "font", "stylesheet", "script")
                 else route.continue_(),
             )
 
