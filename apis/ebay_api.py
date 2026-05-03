@@ -99,10 +99,16 @@ def add_item(
             "ShippingType": "Flat",
             "ShippingServiceOptions": {
                 "ShippingServicePriority": 1,
-                "ShippingService": "InternationalPriorityShipping",
+                "ShippingService": "ExpeditedShippingFromOutsideUS",
                 "ShippingServiceCost": "0.00",
                 "ShippingServiceAdditionalCost": "0.00",
-                "ShipsTo": "WorldWide",
+            },
+            "InternationalShippingServiceOption": {
+                "ShippingServicePriority": 1,
+                "ShippingService": "ExpeditedInternational",
+                "ShippingServiceCost": "0.00",
+                "ShippingServiceAdditionalCost": "0.00",
+                "ShipToLocation": "WorldWide",
             },
         },
         "ReturnPolicy": {
