@@ -1,9 +1,9 @@
 name: Arbitrage Monitor
 
 on:
-  schedule:
-    - cron: '0 */3 * * *'  # 3時間ごと（SELLER_URLS 20件ループに対応）
-  workflow_dispatch:        # 手動実行も可能
+  # schedule: 停止中（ローカルPC実行に移行）
+  #   - cron: '0 */3 * * *'
+  workflow_dispatch:        # 手動実行のみ
 
 jobs:
   monitor:

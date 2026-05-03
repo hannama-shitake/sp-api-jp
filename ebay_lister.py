@@ -25,6 +25,17 @@ import os
 import sys
 import time
 
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import requests as _requests
 from sp_api.api import Reports, Products, CatalogItems
 from sp_api.base import Marketplaces, SellingApiException
@@ -371,7 +382,10 @@ def main():
 
     body = "\n".join(lines)
     send_email(subject=subject, body=body)
-    print(body)
+    try:
+        print(body)
+    except UnicodeEncodeError:
+        print(body.encode('utf-8', errors='replace').decode('ascii', errors='replace'))
 
 
 if __name__ == "__main__":

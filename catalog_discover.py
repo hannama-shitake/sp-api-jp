@@ -30,6 +30,18 @@ import random
 import sys
 import time
 import argparse
+
+# Windows CP932 ターミナルでも日本語・記号が表示できるように
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 from typing import Optional
 
 import requests as _requests
@@ -1103,7 +1115,10 @@ def main():
         dry_run=args.dry_run,
     )
     send_email(subject=subject, body=body)
-    print(body)
+    try:
+        print(body)
+    except UnicodeEncodeError:
+        print(body.encode('utf-8', errors='replace').decode('ascii', errors='replace'))
 
 
 if __name__ == "__main__":
