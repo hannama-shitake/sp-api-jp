@@ -83,25 +83,35 @@ RESTRICTION_INTERVAL = 1.1   # ListingsRestrictions: 1 req/s
 # ターゲット設定
 # ─────────────────────────────────────────────
 
-# JP ブラウズノード（カテゴリ）
-# Amazon.co.jp のカテゴリURL: amazon.co.jp/s?rh=n:XXXXX で node ID を確認できる
-TARGET_BROWSE_NODES = [
-    # ラベル,                   browse_node_id
-    ("フィギュア全般",          "13793682051"),
-    ("アクションフィギュア",    "2277719051"),
-    ("プラモデル",              "13793683051"),
-    ("ダイキャスト・ミニカー",  "13793686051"),
-    ("トレーディングカード",    "2277721051"),
-    ("デジタルカメラ",          "2127213051"),
-    ("カメラレンズ",            "2127222051"),
-    ("双眼鏡・望遠鏡",         "2127225051"),
-    ("釣り竿",                  "2028961051"),
-    ("リール",                  "2028971051"),
-    ("ルアー・フライ",          "2028981051"),
-    ("ヘッドフォン",            "2016929051"),
-    ("スピーカー",              "2016930051"),
-    ("登山・アウトドア",        "14696781"),
-    ("ギター・ベース",          "562038"),
+# JP カタログ検索設定
+# searchCatalogItems 2022-04-01 は keywords が必須。
+# classificationIds はフィルタとして併用（keywords + node ID で絞り込み）
+# ラベル, keywords, browse_node_id(任意)
+TARGET_SEARCHES = [
+    # フィギュア・ホビー
+    ("フィギュア",          "フィギュア",           "13793682051"),
+    ("アクションフィギュア","action figure フィギュア", "2277719051"),
+    ("プラモデル",          "プラモデル",            "13793683051"),
+    ("ガンプラ",            "ガンプラ gunpla",       "13793683051"),
+    ("ミニカー",            "ダイキャスト ミニカー", "13793686051"),
+    # トレカ
+    ("ポケカ",              "ポケモンカード",         "2277721051"),
+    ("トレカ全般",          "トレーディングカード",   "2277721051"),
+    # カメラ
+    ("デジタルカメラ",      "デジタルカメラ",         "2127213051"),
+    ("カメラレンズ",        "カメラ レンズ",          "2127222051"),
+    ("双眼鏡",              "双眼鏡",                "2127225051"),
+    # 釣り
+    ("釣り竿",              "釣り竿 ロッド",          "2028961051"),
+    ("リール",              "リール fishing",         "2028971051"),
+    ("ルアー",              "ルアー lure",            "2028981051"),
+    # 音響
+    ("ヘッドフォン",        "ヘッドフォン headphone", "2016929051"),
+    ("スピーカー",          "スピーカー bluetooth",   "2016930051"),
+    # アウトドア
+    ("アウトドア",          "アウトドア キャンプ",    "14696781"),
+    # 楽器
+    ("ギター",              "ギター エレキ",          "562038"),
 ]
 
 # ターゲットブランド（ブラウズノードに加えてブランド別にも検索）
@@ -230,19 +240,23 @@ def check_authenticity(title: str, brand: str, browse_node_id: str = "") -> tupl
 # ─────────────────────────────────────────────
 
 def search_jp_catalog(
+    keywords: str,
     browse_node_id: str = None,
     brand: str = None,
     max_pages: int = 5,
     rank_limit: int = 10000,
 ) -> list:
     """
-    JP カタログを searchCatalogItems で検索する。
+    JP カタログを searchCatalogItems (2022-04-01) で検索する。
+
+    2022-04-01 では keywords が必須。classificationIds / brandNames は任意フィルタ。
 
     Args:
-        browse_node_id: ブラウズノード ID（カテゴリ指定）
-        brand:          ブランド名指定
+        keywords:       検索キーワード（必須）
+        browse_node_id: ブラウズノード ID（カテゴリフィルタ、任意）
+        brand:          ブランド名フィルタ（任意）
         max_pages:      最大取得ページ数（1ページ=20件）
-        rank_limit:     このランキング以内のみ対象（None=制限なし）
+        rank_limit:     このランキング以内のみ対象
 
     Returns:
         [{"asin", "rank", "title", "brand", "browse_node_id", "weight_kg"}]
@@ -251,10 +265,11 @@ def search_jp_catalog(
                        version="2022-04-01")
     results = []
     page_token = None
-    label = browse_node_id or brand or "?"
+    label = brand or browse_node_id or keywords
 
     kwargs = {
         "marketplaceIds":  [MARKETPLACE_JP],
+        "keywords":        keywords,          # 必須パラメータ
         "includedData":    ["salesRanks", "summaries", "dimensions"],
         "pageSize":        20,
     }
@@ -656,15 +671,16 @@ def main():
 
     candidates: dict = {}   # asin → item dict（重複排除）
 
-    # ブラウズノード検索
+    # カテゴリ × キーワード検索
     if not args.brands_only:
-        for label, node_id in TARGET_BROWSE_NODES:
-            if _is_ng_browse_node(node_id):
-                logger.info("[catalog_api] NGカテゴリスキップ: %s (%s)", label, node_id)
+        for label, kw, node_id in TARGET_SEARCHES:
+            if node_id and _is_ng_browse_node(node_id):
+                logger.info("[catalog_api] NGカテゴリスキップ: %s", label)
                 continue
-            logger.info("[catalog_api] ブラウズノード検索: %s (%s)", label, node_id)
+            logger.info("[catalog_api] カテゴリ検索: %s [%s]", label, kw)
             items = search_jp_catalog(
-                browse_node_id=node_id,
+                keywords=kw,
+                browse_node_id=node_id or None,
                 max_pages=args.max_pages,
                 rank_limit=args.rank_limit,
             )
@@ -675,11 +691,12 @@ def main():
             logger.info("[catalog_api] %s: %d件収集 → 累計候補 %d件", label, len(items), len(candidates))
             time.sleep(1.0)
 
-    # ブランド検索
+    # ブランド × キーワード検索
     if not args.nodes_only:
         for brand in TARGET_BRANDS:
             logger.info("[catalog_api] ブランド検索: %s", brand)
             items = search_jp_catalog(
+                keywords=brand,
                 brand=brand,
                 max_pages=args.max_pages,
                 rank_limit=args.rank_limit,
