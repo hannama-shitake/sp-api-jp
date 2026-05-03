@@ -247,7 +247,8 @@ def search_jp_catalog(
     Returns:
         [{"asin", "rank", "title", "brand", "browse_node_id", "weight_kg"}]
     """
-    api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
+    api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP,
+                       version="2022-04-01")
     results = []
     page_token = None
     label = browse_node_id or brand or "?"
