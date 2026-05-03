@@ -231,13 +231,25 @@ def create_shipment(
     """
     if not config.SHIPCO_API_TOKEN:
         logger.error("[shipco] SHIPCO_API_TOKEN が未設定")
-        return None
+        return {"error": "SHIPCO_API_TOKEN 未設定（GitHub Secrets を確認）"}
+
+    # 発送元必須フィールドチェック
+    missing = [f for f, v in [
+        ("SHIPCO_FROM_ZIP",      config.SHIPCO_FROM_ZIP),
+        ("SHIPCO_FROM_PHONE",    config.SHIPCO_FROM_PHONE),
+        ("SHIPCO_FROM_EMAIL",    config.SHIPCO_FROM_EMAIL),
+        ("SHIPCO_FROM_ADDRESS1", config.SHIPCO_FROM_ADDRESS1),
+    ] if not v]
+    if missing:
+        msg = f"発送元情報が未設定: {', '.join(missing)}（GitHub Secrets を確認）"
+        logger.error("[shipco] %s", msg)
+        return {"error": msg}
 
     # rates から最適キャリア（DHL or eパケット）を自動選択
     rate = select_carrier_from_rates(to_address, products, weight_g)
     if not rate:
         logger.error("[shipco] 利用可能なキャリアなし: order=%s", order_id)
-        return None
+        return {"error": "利用可能なキャリアなし（Ship&co でDHL/eパケット契約確認）"}
 
     setup: dict = {
         "ref_number":    order_id,
@@ -290,4 +302,4 @@ def create_shipment(
     except requests.HTTPError as e:
         body = e.response.text if e.response else ""
         logger.error("[shipco] 出荷作成失敗 order=%s: %s | %s", order_id, e, body)
-        return None
+        return {"error": f"Ship&co APIエラー: {e} | {body[:200]}"}

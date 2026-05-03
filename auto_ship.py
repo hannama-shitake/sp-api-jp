@@ -248,6 +248,7 @@ def main():
 
     shipped = failed = skipped = 0
     details = []
+    fail_details = []
 
     for order in orders:
         order_id   = order.get("AmazonOrderId", "")
@@ -282,8 +283,10 @@ def main():
             products=products,
             test=args.test_label,
         )
-        if not result:
-            logger.error("[auto_ship] Ship&co 失敗: %s → スキップ", order_id)
+        if not result or result.get("error"):
+            err_msg = (result or {}).get("error", "不明なエラー")
+            logger.error("[auto_ship] Ship&co 失敗: %s | %s", order_id, err_msg)
+            fail_details.append({"order_id": order_id, "buyer": buyer_name, "error": err_msg})
             failed += 1
             continue
 
@@ -347,6 +350,13 @@ def main():
                     f" | 追跡: {d['tracking']}{test_mark} | 送料¥{d['fee_jpy']:,}"
                 )
                 lines.append(f"    ラベル: {d['label_url']}")
+        lines.append("")
+
+    if fail_details:
+        lines.append(f"--- 失敗リスト ({failed}件) ---")
+        for d in fail_details:
+            lines.append(f"  {d['order_id']} | {d['buyer']}")
+            lines.append(f"    原因: {d['error']}")
         lines.append("")
 
     body = "\n".join(lines)
