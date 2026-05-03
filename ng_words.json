@@ -50,5 +50,14 @@
   "au_toys_safety": [
     "n gauge", "nゲージ", "model train", "鉄道模型",
     "pretty cure", "precure", "プリキュア"
+  ],
+
+  "music_copyright": [
+    "vinyl", "vinyl record", "lp record", "ep record", "12inch", "7inch",
+    "vinyル", "レコード", "ビニール盤", "アナログ盤",
+    "cd album", "music cd", "single cd", "soundtrack",
+    "yoasobi", "ado", "king gnu", "official髭男dism", "fujii kaze",
+    "米津玄師", "あいみょん", "ヨルシカ", "RADWIMPS",
+    "anime ost", "anime soundtrack", "game ost", "game soundtrack"
   ]
 }
