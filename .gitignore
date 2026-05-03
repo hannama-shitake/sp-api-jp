@@ -13,3 +13,6 @@ violation_asins.json
 feed_result.txt
 list_done.txt
 list_log.txt
+# Google サービスアカウントキー
+*.json
+!package.json
