@@ -1,21 +1,22 @@
 """
-出品中・停止中の全商品について JP 価格・AU 競合価格を確認し、AU 出品価格を自動更新するスクリプト。
-DBに依存せず、Reports APIでリアルタイムに自分の出品一覧を取得する。
+出品中の全商品について JP 価格・AU 競合価格を確認し、AU 出品価格を自動更新するスクリプト。
 
 価格決定ロジック:
-  1. JP在庫なし                    → 在庫0で停止
+  1. JP在庫なし                    → 出品削除 + DB候補戻し（再発掘待ち）
   2. JP在庫あり + AU競合価格あり
        競合価格 >= 最低利益ライン   → 競合価格で出品（利益最大化）
-       競合価格 <  最低利益ライン   → 在庫0で停止（赤字回避）
+       競合価格 <  最低利益ライン   → 出品削除 + DB候補戻し（赤字回避）
   3. JP在庫あり + AU競合価格なし   → 最低利益ラインで出品
 
-  ★ 停止中(inactive)の出品も対象。他セラーが販売開始 + JP在庫あり → 自動再出品。
+  ★ inactive は作らない。条件悪化 → 即削除 → DB候補戻し → 次回発掘で再出品。
 """
 import csv
 import gzip
 import io
+import sqlite3
 import sys
 import time
+from datetime import date as _date
 
 import requests as _requests
 from sp_api.api import Reports, Products, ListingsItems
@@ -213,164 +214,156 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 4. AU 価格更新 / 停止 / 再出品
+# 4. DB候補戻し / 削除ヘルパー
+# ─────────────────────────────────────────────
+
+def _demote_to_candidate(asin: str, reason: str):
+    """削除した出品を arbitrage.db の candidate に戻す（再発掘待ち）"""
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO asin_candidates (asin, first_seen, status) VALUES (?, ?, 'candidate')",
+                (asin, str(_date.today()))
+            )
+            conn.execute(
+                "UPDATE asin_candidates SET status='candidate', skip_reason=?, last_checked=NULL WHERE asin=?",
+                (reason, asin)
+            )
+    except Exception as e:
+        logger.warning("[price_update] %s: DB候補戻し失敗 - %s", asin, e)
+
+
+def _delete_and_demote(api, seller_id: str, sku: str, asin: str, reason: str):
+    """出品を削除 + DB を candidate に戻す"""
+    api.delete_listings_item(
+        sellerId=seller_id,
+        sku=sku,
+        marketplaceIds=[config.MARKETPLACE_AU],
+    )
+    _demote_to_candidate(asin, reason)
+
+
+# ─────────────────────────────────────────────
+# 5. AU 価格更新 / 削除
 # ─────────────────────────────────────────────
 
 def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exchange_rate: float, seller_id: str):
     """
-    JP価格をもとに AU 出品価格を更新 or 停止 or 再出品する。
-
-    ★ 新ロジック:
-    - 他セラーが販売中 + JP在庫あり + 利益>=MIN_PROFIT_RATE → 再出品（inactive→active）
-    - JP在庫なし → 停止
-    - 他セラー価格が最低ラインを下回る → 停止（赤字回避）
+    JP価格をもとに AU 出品価格を更新 or 削除する。
+    条件悪化 → deleteListingsItem + DB候補戻し → 次回 recheck で再出品。
+    inactive は作らない。
     """
     api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
 
-    updated = reactivated = failed = 0
-    paused_no_stock = 0    # JP在庫なし → 停止
-    paused_too_cheap = 0   # 競合価格が利益ラインを下回る → 停止
-    paused_fair = 0        # フェアプライシング上限超過 → 停止
-    sole_seller = 0        # AU独占（競合なし） → 自動でFeatured Offer獲得
-    buybox_win = 0         # 競合あり・アンダーカット出品 → Featured Offer狙い
+    updated = failed = 0
+    deleted_no_stock = 0    # JP在庫なし → 削除
+    deleted_too_cheap = 0   # 競合価格が利益ラインを下回る → 削除
+    deleted_fair = 0        # フェアプライシング上限超過 → 削除
+    sole_seller = 0         # AU独占（競合なし） → 自動でFeatured Offer獲得
+    buybox_win = 0          # 競合あり・アンダーカット出品 → Featured Offer狙い
 
     for listing in listings:
         asin = listing["asin"]
         sku = listing["sku"]
-        was_inactive = listing.get("status", "active") != "active"
         jp_data = jp_prices.get(asin)
 
-        # JP価格データ自体がない（APIバッチ未取得）→ スキップ（誤停止防止）
+        # JP価格データ自体がない（APIバッチ未取得）→ スキップ（誤削除防止）
         if jp_data is None:
             logger.debug("[price_update] %s: JP価格未取得 → スキップ", asin)
             continue
 
         jp_price, in_stock = jp_data
 
-        # JP在庫切れ（NumberOfOfferListings Count=0）→ 停止
+        # JP在庫切れ → 削除 + DB候補戻し
         if not in_stock:
             try:
-                _set_quantity(api, seller_id, sku, 0)
-                paused_no_stock += 1
-                logger.info("[price_update] %s: JP在庫切れ(Count=0) → 停止", asin)
+                _delete_and_demote(api, seller_id, sku, asin, "JP在庫切れ")
+                deleted_no_stock += 1
+                logger.info("[price_update] %s: JP在庫切れ → 削除・候補DB戻し", asin)
             except Exception as e:
-                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                logger.warning("[price_update] %s: 削除失敗 - %s", asin, e)
                 failed += 1
             time.sleep(_AU_INTERVAL)
             continue
 
-        # JP在庫あり・競合価格なし（JP独占出品）→ 現在価格を維持してスキップ
-        # get_competitive_pricing はJPセラー1人の場合価格を返さないため、
-        # catalog_discover が出品した商品が誤停止されないよう停止しない
+        # JP在庫あり・競合価格なし（独占出品）→ 現在価格維持
         if not jp_price:
-            current_price = float(listing.get("current_price_aud") or 0)
-            if was_inactive and current_price > 0:
-                # 停止中かつ現在価格あり → 最低利益ラインを仮算出して再出品判断
-                # jp_price が不明なため conservative に min_price は計算できないが
-                # catalog_discover が出品時に利益確認済みなので現在価格で再出品する
-                try:
-                    _patch_price_and_quantity(api, seller_id, sku, current_price)
-                    reactivated += 1
-                    logger.info("[price_update] %s: JP独占出品・現在価格で再出品 AU$%.2f",
-                                asin, current_price)
-                except Exception as e:
-                    logger.warning("[price_update] %s: 再出品失敗 - %s", asin, e)
-                    failed += 1
-                time.sleep(_AU_INTERVAL)
-            else:
-                logger.debug("[price_update] %s: JP独占出品（競合価格なし）→ 現在価格維持でスキップ", asin)
+            logger.debug("[price_update] %s: JP独占出品（競合価格なし）→ 現在価格維持", asin)
             continue
 
         # 最低利益ライン（赤字にならない最安値）
         min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
 
-        # AU競合価格があればそれを使う、なければ現在価格を維持（下げない）
         comp_price = au_comp_prices.get(asin)
         if comp_price:
             if comp_price < min_price:
-                # 競合が安すぎて利益出ない → 停止
+                # 競合が安すぎて利益出ない → 削除 + DB候補戻し
                 try:
-                    _set_quantity(api, seller_id, sku, 0)
-                    paused_too_cheap += 1
-                    logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → 停止（利益率不足）",
+                    _delete_and_demote(api, seller_id, sku, asin,
+                                       f"競合安値_{comp_price:.2f}")
+                    deleted_too_cheap += 1
+                    logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → 削除・候補DB戻し",
                                 asin, comp_price, min_price)
                 except Exception as e:
-                    logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                    logger.warning("[price_update] %s: 削除失敗 - %s", asin, e)
                     failed += 1
                 time.sleep(_AU_INTERVAL)
                 continue
-            # 競合価格から BUYBOX_UNDERCUT_RATE 分引いてFeatured Offer狙い
             undercut = round(comp_price * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
-            final_price = max(undercut, min_price)  # 最低ラインは下回らない
+            final_price = max(undercut, min_price)
             buybox_win += 1
         else:
-            # ★ 競合なし: 現在価格が最低ラインより高ければ維持（独占 → 自動でFeatured Offer）
             current_price = float(listing.get("current_price_aud") or 0)
             sole_seller += 1
-            if current_price >= min_price:
-                final_price = current_price
-                logger.debug("[price_update] %s: 独占出品 → 現在価格維持 AU$%.2f",
-                             asin, final_price)
-            else:
-                final_price = min_price   # 未設定 or 安すぎ → 最低ラインで出品
-                logger.debug("[price_update] %s: 独占出品 → 最低ライン AU$%.2f",
-                             asin, final_price)
+            final_price = current_price if current_price >= min_price else min_price
 
-        # Amazon Fair Pricing Policy: JP基準価格の MAX_FAIR_PRICE_RATIO 倍を超える価格は設定しない
+        # Amazon Fair Pricing Policy: JP基準価格の MAX_FAIR_PRICE_RATIO 倍を超える価格は削除
         jp_ref_aud = jp_price * exchange_rate
         if final_price > jp_ref_aud * config.MAX_FAIR_PRICE_RATIO:
             try:
-                _set_quantity(api, seller_id, sku, 0)
-                paused_fair += 1
+                _delete_and_demote(api, seller_id, sku, asin, "フェアプライシング上限")
+                deleted_fair += 1
                 logger.info(
-                    "[price_update] %s: フェアプライシング上限超過 AU$%.2f > AU$%.2f×%.1f → 停止",
+                    "[price_update] %s: フェアプライシング上限超過 AU$%.2f > AU$%.2f×%.1f → 削除・候補DB戻し",
                     asin, final_price, jp_ref_aud, config.MAX_FAIR_PRICE_RATIO,
                 )
             except Exception as e:
-                logger.warning("[price_update] %s: 停止失敗 - %s", asin, e)
+                logger.warning("[price_update] %s: 削除失敗 - %s", asin, e)
                 failed += 1
             time.sleep(_AU_INTERVAL)
             continue
 
-        # 利益確認ログ
         result = calc_profit(
             asin=asin, title="", jp_price_jpy=jp_price,
             au_price_aud=final_price, exchange_rate=exchange_rate,
         )
         try:
             _patch_price_and_quantity(api, seller_id, sku, final_price)
-            if was_inactive:
-                # ★ 停止中 → 再出品（他セラーが販売開始 or JP在庫復活）
-                reactivated += 1
-                logger.info("[price_update] %s: 再出品 JP¥%d → AU$%.2f (粗利率%.1f%%, 競合$%s)",
-                            asin, jp_price, final_price, result.profit_rate,
-                            f"{comp_price:.2f}" if comp_price else "なし")
+            updated += 1
+            if comp_price:
+                logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [FO狙い -%.1f%% 競合$%.2f]",
+                             asin, jp_price, final_price,
+                             (comp_price - final_price) / comp_price * 100, comp_price)
             else:
-                updated += 1
-                if comp_price:
-                    logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [FO狙い -%.1f%% 競合$%.2f]",
-                                 asin, jp_price, final_price,
-                                 (comp_price - final_price) / comp_price * 100, comp_price)
-                else:
-                    logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [独占 粗利率%.1f%%]",
-                                 asin, jp_price, final_price, result.profit_rate)
+                logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [独占 粗利率%.1f%%]",
+                             asin, jp_price, final_price, result.profit_rate)
         except Exception as e:
             logger.warning("[price_update] %s: 価格更新失敗 - %s", asin, e)
             failed += 1
 
         time.sleep(_AU_INTERVAL)
 
-    paused = paused_no_stock + paused_too_cheap + paused_fair
+    deleted = deleted_no_stock + deleted_too_cheap + deleted_fair
     featured_offer_est = sole_seller + buybox_win
     logger.info(
-        "[price_update] 完了: 更新 %d件 / 再出品 %d件 / 停止 %d件 (在庫なし%d / 赤字%d / FP%d) / 失敗 %d件",
-        updated, reactivated, paused, paused_no_stock, paused_too_cheap, paused_fair, failed,
+        "[price_update] 完了: 更新 %d件 / 削除 %d件 (在庫なし%d / 赤字%d / FP%d) / 失敗 %d件",
+        updated, deleted, deleted_no_stock, deleted_too_cheap, deleted_fair, failed,
     )
     logger.info(
         "[price_update] Featured Offer推定: 独占 %d件 + 競合アンダーカット %d件 = 計 %d件",
         sole_seller, buybox_win, featured_offer_est,
     )
-    return updated, paused, failed, reactivated, sole_seller, buybox_win, paused_no_stock, paused_too_cheap, paused_fair
+    return updated, deleted, failed, 0, sole_seller, buybox_win, deleted_no_stock, deleted_too_cheap, deleted_fair
 
 
 def _set_quantity(api, seller_id, sku, quantity):

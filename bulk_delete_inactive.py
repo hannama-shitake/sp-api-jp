@@ -21,6 +21,9 @@ import sys
 import time
 import argparse
 
+import sqlite3
+from datetime import date as _date
+
 import requests as _requests
 from sp_api.api import Reports, ListingsItems
 from sp_api.base import Marketplaces, SellingApiException
@@ -28,6 +31,22 @@ from sp_api.base import Marketplaces, SellingApiException
 import config
 from utils.logger import get_logger
 from utils.notify import send_email
+
+
+def _demote_to_candidate(asin: str):
+    """削除した ASIN を arbitrage.db の candidate に戻す（再発掘待ち）"""
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO asin_candidates (asin, first_seen, status) VALUES (?, ?, 'candidate')",
+                (asin, str(_date.today()))
+            )
+            conn.execute(
+                "UPDATE asin_candidates SET status='candidate', skip_reason='bulk_delete_inactive', last_checked=NULL WHERE asin=?",
+                (asin,)
+            )
+    except Exception as e:
+        logger.warning("[bulk_delete_inactive] %s: DB候補戻し失敗 - %s", asin, e)
 
 logger = get_logger(__name__)
 
@@ -140,6 +159,7 @@ def delete_listings(inactive_listings: list, seller_id: str, dry_run: bool = Fal
                     sku=sku,
                     marketplaceIds=[config.MARKETPLACE_AU],
                 )
+                _demote_to_candidate(asin)
                 deleted += 1
                 success = True
                 break
