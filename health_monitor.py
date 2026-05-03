@@ -62,6 +62,7 @@ _AU_CREDS = {
 # 危険フラグ（真贋・IP侵害）→ 自動削除
 # ─────────────────────────────────────────────
 DANGER_CODES = {
+    # 文字列コード
     "AUTHENTICITY_COMPLAINT",
     "INTELLECTUAL_PROPERTY_COMPLAINT",
     "PRODUCT_AUTHENTICITY_CUSTOMER_COMPLAINT",
@@ -71,6 +72,8 @@ DANGER_CODES = {
     "BRAND_AUTHENTICITY_CONCERN",
     "COUNTERFEIT_COMPLAINT",
     "INFRINGEMENT",
+    # 数字コード（実績あり）
+    "19122",   # Copyright Infringement（2026-05-03 実績）
 }
 
 DANGER_KEYWORDS = [
