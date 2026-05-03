@@ -672,14 +672,16 @@ def main():
         # ① 真贋チェック
         auth_ok, auth_reason = check_authenticity(title, brand, node)
         if not auth_ok:
-            update_candidate(asin, title=title, status="ng", skip_reason=auth_reason)
+            if not args.dry_run:
+                update_candidate(asin, title=title, status="ng", skip_reason=auth_reason)
             skipped_auth += 1
             continue
 
         # ② AU セラー確認（版権・地域制限の核心）
         time.sleep(AU_INTERVAL)
         au_sellers, au_min_price = get_au_sellers(asin)
-        update_candidate(asin, seller_count=au_sellers, au_price=au_min_price)
+        if not args.dry_run:
+            update_candidate(asin, seller_count=au_sellers, au_price=au_min_price)
 
         if au_sellers < args.min_au_sellers:
             logger.info("[cross] AU セラー不足 %s: %d人 | %s",
@@ -690,7 +692,8 @@ def main():
         # ③ JP 価格・在庫
         time.sleep(JP_INTERVAL)
         jp_price, in_stock = get_jp_price(asin)
-        update_candidate(asin, title=title, weight_kg=weight, jp_price=jp_price)
+        if not args.dry_run:
+            update_candidate(asin, title=title, weight_kg=weight, jp_price=jp_price)
         if not in_stock or not jp_price:
             continue
 
@@ -712,7 +715,8 @@ def main():
         time.sleep(RESTRICTION_INTERVAL)
         is_restricted, restrict_code = check_listing_restriction(asin, seller_id)
         if is_restricted:
-            update_candidate(asin, status=STATUS_RESTRICTED, skip_reason=restrict_code)
+            if not args.dry_run:
+                update_candidate(asin, status=STATUS_RESTRICTED, skip_reason=restrict_code)
             skipped_restrict += 1
             continue
 

@@ -748,14 +748,16 @@ def main():
         auth_ok, auth_reason = check_authenticity(title, brand, node)
         if not auth_ok:
             logger.info("[catalog_api] 真贋NG %s: %s | %s", log_prefix, auth_reason, title[:50])
-            update_candidate(asin, title=title, status="ng", skip_reason=auth_reason)
+            if not args.dry_run:
+                update_candidate(asin, title=title, status="ng", skip_reason=auth_reason)
             skipped_auth += 1
             continue
 
         # ── フィルター② AU セラー確認（版権・地域制限の核心チェック）──
         time.sleep(AU_INTERVAL)
         au_seller_count, au_min_price = get_au_sellers(asin)
-        update_candidate(asin, seller_count=au_seller_count, au_price=au_min_price)
+        if not args.dry_run:
+            update_candidate(asin, seller_count=au_seller_count, au_price=au_min_price)
 
         if au_seller_count < args.min_au_sellers:
             logger.info("[catalog_api] AU セラー不足 %s: %d人 | %s",
@@ -769,7 +771,8 @@ def main():
         # ── フィルター③ JP 価格・在庫確認 ──
         time.sleep(JP_INTERVAL)
         jp_price, in_stock = get_jp_price(asin)
-        update_candidate(asin, title=title, weight_kg=weight, jp_price=jp_price)
+        if not args.dry_run:
+            update_candidate(asin, title=title, weight_kg=weight, jp_price=jp_price)
 
         if not in_stock or not jp_price:
             logger.debug("[catalog_api] JP在庫なし/価格なし %s", asin)
@@ -802,7 +805,8 @@ def main():
         if is_restricted:
             logger.info("[catalog_api] 出品制限 %s: %s | %s",
                         log_prefix, restrict_code, title[:50])
-            update_candidate(asin, status=STATUS_RESTRICTED, skip_reason=restrict_code)
+            if not args.dry_run:
+                update_candidate(asin, status=STATUS_RESTRICTED, skip_reason=restrict_code)
             skipped_restrict += 1
             continue
 
