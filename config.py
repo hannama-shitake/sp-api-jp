@@ -23,7 +23,7 @@ AMAZON_AU_CREDENTIALS = {
 }
 
 # ── 利益計算パラメータ ────────────────────────────────────────
-MIN_PROFIT_RATE = float(os.getenv("MIN_PROFIT_RATE", "30"))  # 最低粗利率(%)
+MIN_PROFIT_RATE = float(os.getenv("MIN_PROFIT_RATE", "18"))  # 最低粗利率(%)
 INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY", "3800"))  # 国際送料デフォルト(円) DHL想定
 DHL_SHIPPING_JPY = int(os.getenv("DHL_SHIPPING_JPY", "3800"))   # DHL送料(2kg以下)
 EMS_SHIPPING_JPY = int(os.getenv("EMS_SHIPPING_JPY", "2500"))   # EMS/eパケット送料(2kg超)
