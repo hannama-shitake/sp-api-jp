@@ -68,6 +68,7 @@ def add_item(
     image_url: str = "",
     category_id: int = None,
     handling_days: int = 3,
+    custom_label: str = "",
 ) -> Optional[str]:
     """
     eBay に FixedPriceItem (Buy It Now) を新規出品する。
@@ -121,6 +122,9 @@ def add_item(
 
     if image_url:
         item["PictureDetails"] = {"PictureURL": image_url}
+
+    if custom_label:
+        item["SKU"] = custom_label[:50]
 
     try:
         api = _make_connection()

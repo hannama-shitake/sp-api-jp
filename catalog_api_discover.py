@@ -88,47 +88,92 @@ RESTRICTION_INTERVAL = 1.1   # ListingsRestrictions: 1 req/s
 # classificationIds はフィルタとして併用（keywords + node ID で絞り込み）
 # ラベル, keywords, browse_node_id(任意)
 TARGET_SEARCHES = [
-    # フィギュア・ホビー
-    ("フィギュア",          "フィギュア",           "13793682051"),
-    ("アクションフィギュア","action figure フィギュア", "2277719051"),
-    ("プラモデル",          "プラモデル",            "13793683051"),
-    ("ガンプラ",            "ガンプラ gunpla",       "13793683051"),
-    ("ミニカー",            "ダイキャスト ミニカー", "13793686051"),
-    # トレカ
-    ("ポケカ",              "ポケモンカード",         "2277721051"),
-    ("トレカ全般",          "トレーディングカード",   "2277721051"),
-    # カメラ
-    ("デジタルカメラ",      "デジタルカメラ",         "2127213051"),
-    ("カメラレンズ",        "カメラ レンズ",          "2127222051"),
-    ("双眼鏡",              "双眼鏡",                "2127225051"),
-    # 釣り
-    ("釣り竿",              "釣り竿 ロッド",          "2028961051"),
-    ("リール",              "リール fishing",         "2028971051"),
-    ("ルアー",              "ルアー lure",            "2028981051"),
-    # 音響
-    ("ヘッドフォン",        "ヘッドフォン headphone", "2016929051"),
-    ("スピーカー",          "スピーカー bluetooth",   "2016930051"),
-    # アウトドア
-    ("アウトドア",          "アウトドア キャンプ",    "14696781"),
-    # 楽器
-    ("ギター",              "ギター エレキ",          "562038"),
+    # ── フィギュア・ホビー ────────────────────────────────────────
+    ("フィギュア",          "フィギュア anime",          "13793682051"),
+    ("SH Figuarts",         "SH Figuarts bandai",        "13793682051"),
+    ("ねんどろいど",        "nendoroid good smile",       "13793682051"),
+    ("figma",               "figma max factory",          "13793682051"),
+    ("MAFEX",               "MAFEX medicom figure",       "13793682051"),
+    ("POP UP PARADE",       "pop up parade figure",       "13793682051"),
+    ("アクションフィギュア","action figure フィギュア",   "2277719051"),
+    # ── プラモデル ───────────────────────────────────────────────
+    ("プラモデル",          "プラモデル scale model",    "13793683051"),
+    ("ガンプラ",            "ガンプラ gunpla bandai",    "13793683051"),
+    ("タミヤ模型",          "tamiya model kit",           "13793683051"),
+    ("ハセガワ",            "hasegawa aircraft model",    "13793683051"),
+    ("ミニカー",            "ダイキャスト ミニカー",      "13793686051"),
+    ("ラジコン",            "rc car radio control",       "13793684051"),
+    # ── トレーディングカード ──────────────────────────────────────
+    ("ポケカ",              "ポケモンカード booster",     "2277721051"),
+    ("遊戯王カード",        "yugioh card japanese",       "2277721051"),
+    ("ワンピースカード",    "one piece card game",        "2277721051"),
+    ("トレカ全般",          "トレーディングカード",       "2277721051"),
+    # ── 釣り具 ───────────────────────────────────────────────────
+    ("シマノリール",        "shimano fishing reel",       "2028971051"),
+    ("ダイワリール",        "daiwa fishing reel",         "2028971051"),
+    ("釣り竿",              "釣り竿 fishing rod",         "2028961051"),
+    ("ルアー",              "ルアー fishing lure",        "2028981051"),
+    ("釣り用品全般",        "fishing tackle japan",       "2028951051"),
+    # ── カメラ・光学 ─────────────────────────────────────────────
+    ("デジタルカメラ",      "デジタルカメラ compact",    "2127213051"),
+    ("カメラレンズ",        "カメラ レンズ",              "2127222051"),
+    ("フィルムカメラ",      "film camera 35mm vintage",   "2127213051"),
+    ("双眼鏡",              "双眼鏡 binoculars",          "2127225051"),
+    ("カメラアクセサリ",    "camera filter strap tripod", "2127222051"),
+    # ── 音響機器 ─────────────────────────────────────────────────
+    ("ヘッドフォン",        "ヘッドフォン headphone",    "2016929051"),
+    ("インイヤーモニター",  "iem earphone audiophile",    "2016929051"),
+    ("スピーカー",          "スピーカー hifi bluetooth",  "2016930051"),
+    ("ターンテーブル",      "turntable record player",    "2016929051"),
+    ("ポータブルDAC",       "portable dac amplifier",     "2016929051"),
+    # ── ゲーム・周辺機器 ─────────────────────────────────────────
+    ("ゲーミングパッド",    "gaming mouse pad artisan",   ""),
+    ("ゲームコントローラ",  "game controller gamepad",    ""),
+    ("ゲームカード",        "nintendo switch game card",  ""),
+    # ── サイクリング ─────────────────────────────────────────────
+    ("シマノコンポ",        "shimano groupset derailleur","2028641051"),
+    ("自転車パーツ",        "bicycle component parts",    "2028641051"),
+    # ── アウトドア・キャンプ ──────────────────────────────────────
+    ("アウトドア全般",      "アウトドア キャンプ",        "14696781"),
+    ("モンベル",            "mont-bell outdoor japan",    "14696781"),
+    ("スノーピーク",        "snow peak camping",          "14696781"),
+    # ── 楽器 ─────────────────────────────────────────────────────
+    ("エレキギター",        "electric guitar japan",      "562038"),
+    ("ベースギター",        "bass guitar japan",          "562038"),
+    ("電子ピアノ",          "digital piano keyboard",     "562038"),
+    ("管楽器",              "wind instrument brass japan","562038"),
+    # ── 工具 ─────────────────────────────────────────────────────
+    ("精密工具",            "precision tool nipper pliers",""),
+    ("精密ドライバー",      "precision screwdriver japan", ""),
+    # ── 文房具 ───────────────────────────────────────────────────
+    ("万年筆",              "fountain pen pilot japan",   ""),
+    # ── スポーツ ─────────────────────────────────────────────────
+    ("卓球用品",            "table tennis butterfly",     "2028991051"),
 ]
 
 # ターゲットブランド（ブラウズノードに加えてブランド別にも検索）
 TARGET_BRANDS = [
     # ホビー・フィギュア
     "BANDAI", "Kotobukiya", "Good Smile Company", "Max Factory",
-    "Medicom Toy", "ALTER", "FREEing", "STRONGER",
+    "Medicom Toy", "ALTER", "FREEing", "STRONGER", "Kotobukiya",
     # プラモデル
     "Tamiya", "Fujimi", "Hasegawa", "Aoshima",
     # 釣り
     "SHIMANO", "DAIWA", "Abu Garcia", "Rapala", "MAJOR CRAFT",
+    "Gamakatsu", "Varivas",
     # カメラ
-    "Sony", "Nikon", "Canon", "Olympus", "FUJIFILM",
+    "Sony", "Nikon", "Canon", "Olympus", "FUJIFILM", "Ricoh",
     # オーディオ
     "Sennheiser", "Audio-Technica", "Beyerdynamic", "Shure",
+    "Fostex", "Final Audio",
+    # サイクリング
+    "Shimano",
     # アウトドア
     "mont-bell", "Snow Peak", "LOGOS",
+    # 楽器
+    "Roland", "Yamaha", "Korg",
+    # スポーツ
+    "Butterfly", "Nittaku",
 ]
 
 
@@ -645,7 +690,7 @@ def main():
     parser = argparse.ArgumentParser(description="JP カタログ API → AU 出品スクリプト")
     parser.add_argument("--dry-run",         action="store_true", help="出品しない（確認のみ）")
     parser.add_argument("--max-new",         type=int,   default=200,   help="新規出品上限（デフォルト200）")
-    parser.add_argument("--rank-limit",      type=int,   default=10000, help="JP ランキング上限（デフォルト10000）")
+    parser.add_argument("--rank-limit",      type=int,   default=50000, help="JP ランキング上限（デフォルト50000）")
     parser.add_argument("--min-au-sellers",  type=int,   default=1,     help="AU 既存セラー最低人数（デフォルト1）")
     parser.add_argument("--max-pages",       type=int,   default=5,     help="カテゴリ/ブランドあたり最大ページ数（デフォルト5）")
     parser.add_argument("--nodes-only",      action="store_true", help="ブラウズノード検索のみ")
