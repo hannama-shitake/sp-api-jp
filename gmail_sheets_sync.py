@@ -402,8 +402,14 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     aud    = order.get("aud_price")
     au_url = f"https://www.amazon.co.jp/dp/{asin}" if asin else ""
 
-    # 追加先の行番号を事前に取得（数式に使うため）
-    row_num = len(ws.get_all_values()) + 1
+    # 正確な挿入行を A列（日付列）だけで判定する
+    # get_all_values() は他列にゴミデータがあると行数が膨らむため使わない
+    date_col = ws.col_values(COL["date"])
+    last_data_row = max(
+        (i + 1 for i, v in enumerate(date_col) if v.strip()),
+        default=1,
+    )
+    row_num = last_data_row + 1
 
     # 列アルファベット（COL定義から動的に生成）
     def col_letter(col_key):
@@ -438,7 +444,11 @@ def add_order_row(ws, order: dict, exchange_rate: float):
     row[COL["ship_jpy"] - 1]    = ""               # K: 手動入力
     row[COL["profit_jpy"] - 1]  = profit_formula   # L: 数式（J・K入力と同時に自動計算）
 
-    ws.append_row(row, value_input_option="USER_ENTERED")
+    # append_row は他列のゴミデータに引きずられて行がズレるため
+    # 直接 row_num 行目に書き込む
+    end_col = chr(ord("A") + len(row) - 1)  # "L"
+    ws.update(f"A{row_num}:{end_col}{row_num}", [row],
+              value_input_option="USER_ENTERED")
     logger.info("[sheets] 注文追加: %s AUD$%s", order["order_id"], aud or "?")
 
 
