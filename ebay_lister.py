@@ -184,14 +184,19 @@ def get_jp_prices_bulk(asins: list) -> dict:
 # 商品画像取得（Amazon Catalog Items API）
 # ─────────────────────────────────────────────
 
-def get_product_image(asin: str) -> str:
+def get_product_info(asin: str) -> tuple[str, str]:
     """
-    Catalog Items API から商品メイン画像URLを取得する。
+    Catalog Items API から商品のカタログタイトルとメイン画像URLを取得する。
+    JP → AU の順で試み、どちらも取得できなければ Amazon 標準 URL を返す。
 
-    AU 出品 ASIN は JP に存在しないことが多いため、
-    JP → AU の順で試み、どちらも取得できなければ
-    Amazon 標準画像 URL を返す（eBay は画像必須）。
+    Returns:
+        (catalog_title, image_url)
+        catalog_title: カタログに登録された正式な商品名（''の場合は AU Reports タイトルを使う）
+        image_url:     商品メイン画像 URL（必ず非空）
     """
+    catalog_title = ""
+    image_url = ""
+
     for creds, marketplace_id, marketplace in [
         (_JP_CREDS, config.MARKETPLACE_JP, Marketplaces.JP),
         (_AU_CREDS, config.MARKETPLACE_AU, Marketplaces.AU),
@@ -202,21 +207,47 @@ def get_product_image(asin: str) -> str:
             resp = api.get_catalog_item(
                 asin,
                 marketplaceIds=[marketplace_id],
-                includedData=["images"],
+                includedData=["images", "summaries"],
             )
-            images = (resp.payload or {}).get("images", [])
-            for img_set in images:
-                for img in img_set.get("images", []):
-                    if img.get("variant") == "MAIN":
-                        url = img.get("link", "")
-                        if url:
-                            return url.replace("http://", "https://")
+            payload = resp.payload or {}
+
+            # カタログタイトル取得（まだ取れていなければ）
+            if not catalog_title:
+                for s in payload.get("summaries", []):
+                    t = s.get("itemName", "").strip()
+                    if t:
+                        catalog_title = t
+                        break
+
+            # 画像取得（まだ取れていなければ）
+            if not image_url:
+                for img_set in payload.get("images", []):
+                    for img in img_set.get("images", []):
+                        if img.get("variant") == "MAIN":
+                            url = img.get("link", "")
+                            if url:
+                                image_url = url.replace("http://", "https://")
+                                break
+                    if image_url:
+                        break
+
         except Exception:
             pass
 
-    # JP・AU どちらにも画像がない場合: Amazon 標準画像 URL をフォールバック
-    # eBay Error 21919136 (Add at least 1 photo) を回避するため必ず URL を返す
-    return f"https://m.media-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
+        if catalog_title and image_url:
+            break  # 両方取れたら打ち切り
+
+    # 画像フォールバック: Amazon 標準画像 URL
+    if not image_url:
+        image_url = f"https://m.media-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
+
+    return catalog_title, image_url
+
+
+def get_product_image(asin: str) -> str:
+    """後方互換ラッパー（catalog_title は不要な呼び出し元用）"""
+    _, image_url = get_product_info(asin)
+    return image_url
 
 
 # ─────────────────────────────────────────────
@@ -329,23 +360,32 @@ def main():
         if listed >= args.max_new:
             continue
 
-        # 画像取得
-        image_url = get_product_image(asin)
+        # カタログタイトルと画像を一括取得
+        # カタログタイトルを優先: AU Reports の seller title（手入力）より正確で
+        # 画像と同じ ASIN に紐付いているためタイトル/画像のミスマッチを防ぐ
+        catalog_title, image_url = get_product_info(asin)
         time.sleep(0.3)
 
-        log_msg = f"{asin} | {title[:40]} | ${ price_usd:.2f} (JP¥{jp_price:,})"
+        # タイトル決定: JP/AU カタログ > AU Reports seller title > ASIN
+        ebay_title = (catalog_title or title or asin)[:80]
+
+        if catalog_title and catalog_title.lower() != title.lower():
+            logger.info("[ebay_lister] タイトル上書き: '%s' → '%s'",
+                        title[:40], catalog_title[:40])
+
+        log_msg = f"{asin} | {ebay_title[:40]} | ${price_usd:.2f} (JP¥{jp_price:,})"
 
         if args.dry_run:
             logger.info("[ebay_lister][DRY] 出品予定: %s", log_msg)
             listed_details.append({
-                "asin": asin, "title": title,
+                "asin": asin, "title": ebay_title,
                 "jp_price": jp_price, "price_usd": price_usd,
             })
             listed += 1
             continue
 
         item_id = ebay_api.add_item(
-            title=title,
+            title=ebay_title,
             price_usd=price_usd,
             image_url=image_url,
             custom_label=asin,
