@@ -37,6 +37,21 @@ CATEGORY_MAP = [
     (["fishing", "daiwa", "shimano", "rod", "reel", "釣り"],   23804),
     # ナイフ・刃物
     (["knife", "knives", "blade", "包丁"],                     3513),
+    # ギターエフェクター・パワーサプライ（Amazon JP直送モデル向け）
+    # eBay: Musical Instruments > Guitar > Effects Pedals (48446)
+    (["guitar", "bass guitar", "electric guitar", "effects pedal",
+      "power supply", "fender", "marshall", "vox", "boss pedal",
+      "mxr", "tc electronic", "strymon", "zoom", "engine room",
+      "audio interface", "focusrite", "scarlett", "mooer",
+      "ibanez", "gretsch", "epiphone", "prs guitar"],          48446),
+    # 電子楽器・MIDI
+    (["midi", "synthesizer", "synth", "keyboard controller",
+      "akai", "arturia", "novation", "elektron",
+      "digital piano", "electric piano"],                      47056),
+    # レコーディング機器
+    (["microphone", "condenser", "audio recorder", "tascam",
+      "zoom recorder", "field recorder", "preamp", "DI box",
+      "phantom power", "xlr"],                                 47069),
     # ゲーム・ホビー（デフォルト）
 ]
 DEFAULT_CATEGORY = 1249  # Collectibles > Decorative Collectibles
@@ -71,6 +86,9 @@ def _get_item_type(cat_id: int) -> str:
         23804:  "Fishing Equipment",
         3513:   "Kitchen Knife",
         479:    "Model Train",
+        48446:  "Effects Pedal",
+        47056:  "Electronic Keyboard",
+        47069:  "Recording Equipment",
         1249:   "Collectible",
     }
     return type_map.get(cat_id, "See Description")

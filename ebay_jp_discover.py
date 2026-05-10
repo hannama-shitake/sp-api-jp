@@ -136,12 +136,23 @@ TARGET_JP_SEARCHES = [
     ("モンベル",          "mont-bell outdoor japan",        "14696781"),
     ("スノーピーク",      "snow peak camping gear",         "14696781"),
     ("アウトドアクッカー","camping cookware japan titanium", "14696781"),
-    # ── 楽器 ────────────────────────────────────────────────────
-    ("エレキギター",      "electric guitar japan",          "562038"),
-    ("ベースギター",      "bass guitar japan",              "562038"),
-    ("電子ピアノ",        "digital piano keyboard japan",   "562038"),
-    ("ハーモニカ",        "harmonica suzuki hohner",        "562038"),
-    ("管楽器",            "wind instrument brass japan",    "562038"),
+    # ── 楽器・エフェクター（Amazon JP直送向け：日本価格優位が大きい）─────
+    ("エレキギター",      "electric guitar japan",                   "562038"),
+    ("ベースギター",      "bass guitar japan",                       "562038"),
+    ("電子ピアノ",        "digital piano keyboard japan",            "562038"),
+    ("ハーモニカ",        "harmonica suzuki hohner",                 "562038"),
+    ("管楽器",            "wind instrument brass japan",             "562038"),
+    # エフェクター・パワーサプライ（Fenderモデル: JP20%引、国際送料¥3,000台）
+    ("エフェクターペダル",  "guitar effects pedal boss mxr",         "562038"),
+    ("パワーサプライ",      "guitar pedal power supply fender korg", "562038"),
+    ("マルチエフェクター",  "multi effects processor boss zoom",      "562038"),
+    ("ギターアンプ",        "guitar amplifier fender marshall vox",  "562038"),
+    ("チューナーペダル",    "guitar tuner pedal boss tc electronic", "562038"),
+    ("ギターケーブル",      "mogami canare guitar cable instrument",  "562038"),
+    ("オーディオIF",        "audio interface usb focusrite scarlett","562038"),
+    ("MIDIキーボード",      "midi keyboard controller akai arturia", "562038"),
+    ("レコーダー",          "portable recorder zoom tascam field",   "562038"),
+    ("ワイヤレスシステム",  "wireless guitar system boss line6",     "562038"),
     # ── 文房具・画材 ────────────────────────────────────────────
     ("万年筆",            "fountain pen pilot namiki japan",""),
     ("ボールペン",        "ballpoint pen japanese luxury",  ""),
@@ -172,8 +183,10 @@ TARGET_JP_BRANDS = [
     "Shimano",  # (重複OK、別途検索)
     # アウトドア
     "Snow Peak", "mont-bell",
-    # 楽器
-    "Roland", "Yamaha", "Korg",
+    # 楽器・エフェクター（Amazon JP直送モデル向け）
+    "Roland", "Yamaha", "Korg", "Boss", "Fender", "Ibanez",
+    "Line 6", "TC Electronic", "Electro-Harmonix", "MXR",
+    "Strymon", "Zoom", "Tascam", "Focusrite", "Mooer",
     # 文房具
     "Pilot", "Uni Mitsubishi",
 ]
