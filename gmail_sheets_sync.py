@@ -358,8 +358,17 @@ def connect_sheets():
     sh = gc.open_by_key(SHEET_ID)
     try:
         ws = sh.worksheet(SHEET_NAME)
+        logger.info("[sheets] シート '%s' を使用", SHEET_NAME)
     except gspread.WorksheetNotFound:
-        ws = sh.sheet1
+        logger.warning("[sheets] シート '%s' が見つかりません → 新規作成します", SHEET_NAME)
+        ws = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=20)
+        # ヘッダー行
+        headers = [
+            "日付", "注文番号", "ASIN", "URL", "ステータス", "仕入れ先",
+            "商品名", "AUD", "入金(JPY)", "仕入(JPY)", "送料(JPY)", "粗利(JPY)",
+        ]
+        ws.append_row(headers)
+        logger.info("[sheets] シート '%s' を作成しました（ヘッダー行追加済み）", SHEET_NAME)
     return ws
 
 
