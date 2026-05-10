@@ -185,25 +185,38 @@ def get_jp_prices_bulk(asins: list) -> dict:
 # ─────────────────────────────────────────────
 
 def get_product_image(asin: str) -> str:
-    """Catalog Items API から商品メイン画像URLを取得する"""
-    try:
-        api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
-        resp = api.get_catalog_item(
-            asin,
-            marketplaceIds=[config.MARKETPLACE_JP],
-            includedData=["images"],
-        )
-        images = (resp.payload or {}).get("images", [])
-        for img_set in images:
-            for img in img_set.get("images", []):
-                if img.get("variant") == "MAIN":
-                    url = img.get("link", "")
-                    if url:
-                        # eBay要件: https で直接アクセスできるURL
-                        return url.replace("http://", "https://")
-    except Exception:
-        pass
-    return ""
+    """
+    Catalog Items API から商品メイン画像URLを取得する。
+
+    AU 出品 ASIN は JP に存在しないことが多いため、
+    JP → AU の順で試み、どちらも取得できなければ
+    Amazon 標準画像 URL を返す（eBay は画像必須）。
+    """
+    for creds, marketplace_id, marketplace in [
+        (_JP_CREDS, config.MARKETPLACE_JP, Marketplaces.JP),
+        (_AU_CREDS, config.MARKETPLACE_AU, Marketplaces.AU),
+    ]:
+        try:
+            api = CatalogItems(credentials=creds, marketplace=marketplace,
+                               version="2022-04-01")
+            resp = api.get_catalog_item(
+                asin,
+                marketplaceIds=[marketplace_id],
+                includedData=["images"],
+            )
+            images = (resp.payload or {}).get("images", [])
+            for img_set in images:
+                for img in img_set.get("images", []):
+                    if img.get("variant") == "MAIN":
+                        url = img.get("link", "")
+                        if url:
+                            return url.replace("http://", "https://")
+        except Exception:
+            pass
+
+    # JP・AU どちらにも画像がない場合: Amazon 標準画像 URL をフォールバック
+    # eBay Error 21919136 (Add at least 1 photo) を回避するため必ず URL を返す
+    return f"https://m.media-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
 
 
 # ─────────────────────────────────────────────
@@ -335,6 +348,7 @@ def main():
             title=title,
             price_usd=price_usd,
             image_url=image_url,
+            custom_label=asin,
         )
         if item_id:
             logger.info("[ebay_lister] 出品完了: %s | ItemID=%s", log_msg, item_id)

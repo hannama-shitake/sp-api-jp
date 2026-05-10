@@ -61,6 +61,38 @@ def _make_connection() -> Trading:
     )
 
 
+def _get_item_type(cat_id: int) -> str:
+    """カテゴリIDからeBay item specific の Type を返す"""
+    type_map = {
+        14990:  "Action Figure",
+        180273: "Model Kit",
+        183454: "Trading Card",
+        625:    "Camera",
+        23804:  "Fishing Equipment",
+        3513:   "Kitchen Knife",
+        479:    "Model Train",
+        1249:   "Collectible",
+    }
+    return type_map.get(cat_id, "See Description")
+
+
+def _build_item_specifics(cat_id: int, brand: str = "") -> dict:
+    """
+    eBay が必須とする item specifics を返す。
+    Error 21919303 (missing item specifics) を回避するため
+    Brand / Type / Model / Connectivity をすべて設定する。
+    """
+    specifics = [
+        {"Name": "Brand",        "Value": brand or "Unbranded"},
+        {"Name": "Type",         "Value": _get_item_type(cat_id)},
+        {"Name": "Model",        "Value": "See Description"},
+        # 一部カテゴリで必須。電子機器以外は "Not Applicable" で通過する
+        {"Name": "Connectivity", "Value": "Not Applicable"},
+        {"Name": "Country/Region of Manufacture", "Value": "Japan"},
+    ]
+    return {"NameValueList": specifics}
+
+
 def add_item(
     title: str,
     price_usd: float,
@@ -69,9 +101,13 @@ def add_item(
     category_id: int = None,
     handling_days: int = 3,
     custom_label: str = "",
+    brand: str = "",
 ) -> Optional[str]:
     """
     eBay に FixedPriceItem (Buy It Now) を新規出品する。
+
+    image_url が空で custom_label が ASIN の場合は Amazon 商品画像 URL を自動補完する。
+    brand は ItemSpecifics に設定される（空なら "Unbranded"）。
 
     Returns:
         eBay ItemID (str) or None on failure
@@ -81,6 +117,14 @@ def add_item(
         return None
 
     cat_id = category_id or _get_category(title)
+
+    # 画像URL補完: custom_label (ASIN) から Amazon 商品画像 URL を生成
+    # eBay は画像必須（Error 21919136）のため必ず設定する
+    final_image_url = image_url
+    if not final_image_url and custom_label and len(custom_label) == 10:
+        final_image_url = (
+            f"https://m.media-amazon.com/images/P/{custom_label}.01._SCLZZZZZZZ_.jpg"
+        )
 
     item = {
         "Title": title[:80],
@@ -118,10 +162,12 @@ def add_item(
             "ReturnsWithinOption": "Days_30",
             "ShippingCostPaidByOption": "Buyer",
         },
+        # ItemSpecifics: Error 21919303 (Brand/Type/Model/Connectivity) 回避
+        "ItemSpecifics": _build_item_specifics(cat_id, brand),
     }
 
-    if image_url:
-        item["PictureDetails"] = {"PictureURL": image_url}
+    if final_image_url:
+        item["PictureDetails"] = {"PictureURL": final_image_url}
 
     if custom_label:
         item["SKU"] = custom_label[:50]
