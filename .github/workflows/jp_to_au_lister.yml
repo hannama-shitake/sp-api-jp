@@ -1,0 +1,62 @@
+name: JP → AU 直送出品
+
+on:
+  schedule:
+    - cron: '0 20 * * *'  # 毎日 05:00 JST（= UTC 20:00）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'dry-run（出品しない）'
+        type: boolean
+        default: false
+      max_new:
+        description: '新規出品上限'
+        type: string
+        default: '50'
+      max_price:
+        description: 'AU出品価格上限 AUD（A$1000超は豪州税関リスク）'
+        type: string
+        default: '1000'
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run JP → AU 直送出品
+        env:
+          # Amazon JP
+          AMAZON_JP_REFRESH_TOKEN:    ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
+          AMAZON_JP_LWA_CLIENT_ID:    ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
+          AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
+          # Amazon AU
+          AMAZON_AU_REFRESH_TOKEN:    ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID:    ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID:        ${{ secrets.AMAZON_AU_SELLER_ID }}
+          # 利益設定
+          MIN_PROFIT_RATE:            ${{ secrets.MIN_PROFIT_RATE || '18' }}
+          AU_FEE_RATE:                ${{ secrets.AU_FEE_RATE || '0.15' }}
+          DHL_SHIPPING_JPY:           ${{ secrets.DHL_SHIPPING_JPY || '3800' }}
+          BUYBOX_UNDERCUT_RATE:       ${{ secrets.BUYBOX_UNDERCUT_RATE || '0.01' }}
+          # メール通知
+          GMAIL_USER:                 ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:         ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "${{ inputs.max_new }}" ]; then ARGS="$ARGS --max-new ${{ inputs.max_new }}"; fi
+          MAX_PRICE="${{ inputs.max_price }}"
+          ARGS="$ARGS --max-price ${MAX_PRICE:-1000}"
+          python jp_to_au_lister.py $ARGS

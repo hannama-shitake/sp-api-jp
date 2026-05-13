@@ -48,6 +48,13 @@ EBAY_USER_TOKEN = os.getenv("EBAY_USER_TOKEN", "")  # OAuth User Token
 EBAY_SITE_ID = int(os.getenv("EBAY_SITE_ID", "0"))  # 0=US, 15=AU
 EBAY_FEE_RATE = float(os.getenv("EBAY_FEE_RATE", "0.1325"))  # 13.25%
 JPY_TO_USD_FALLBACK = float(os.getenv("JPY_TO_USD_FALLBACK", "0.0067"))  # 1 JPY ≈ 0.0067 USD
+EBAY_SHIPPING_US_USD   = float(os.getenv("EBAY_SHIPPING_US_USD",   "25.0"))  # 米国内送料(USD)
+EBAY_SHIPPING_INTL_USD = float(os.getenv("EBAY_SHIPPING_INTL_USD", "30.0"))  # 国際送料(USD)
+# eBay Business Policy IDs（Seller Business Policies 有効アカウント用）
+# legacy ShippingDetails は無視されるため SellerProfiles で明示指定が必要
+EBAY_SHIPPING_POLICY_ID = os.getenv("EBAY_SHIPPING_POLICY_ID", "262689997017")  # Flat $25 US / 4day
+EBAY_PAYMENT_POLICY_ID  = os.getenv("EBAY_PAYMENT_POLICY_ID",  "245471560017")  # eBay Managed Payments
+EBAY_RETURN_POLICY_ID   = os.getenv("EBAY_RETURN_POLICY_ID",   "245471558017")  # 30 days money back
 
 # ── FBM 発送リードタイム ─────────────────────────────────────
 # 注文から発送完了までの最大日数（ハンドリングタイム）

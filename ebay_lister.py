@@ -11,11 +11,17 @@ Amazon AU 出品中の商品を eBay に一括クロスリストするスクリ�
   7. JP在庫なし → eBay出品終了（EndItem）
   8. メール通知
 
+価格監視（JP連動）:
+  毎日 05:05 JST に GitHub Actions で自動実行。
+  JP価格が前回から 3% 以上変動した場合に revise_price で自動更新。
+  JP在庫切れになった場合は EndItem で出品を自動終了。
+
 使い方:
   python ebay_lister.py                  # 新規出品（上限200件）
   python ebay_lister.py --dry-run        # テスト（出品しない）
   python ebay_lister.py --max-new 50     # 上限50件
   python ebay_lister.py --sync-only      # 価格同期・終了のみ（新規出品なし）
+  python ebay_lister.py --fix-shipping   # 既存出品の送料を $25/$30 に一括更新（価格も再計算）
 """
 import argparse
 import csv
@@ -184,18 +190,26 @@ def get_jp_prices_bulk(asins: list) -> dict:
 # 商品画像取得（Amazon Catalog Items API）
 # ─────────────────────────────────────────────
 
-def get_product_info(asin: str) -> tuple[str, str]:
+def get_product_info(asin: str) -> tuple[str, list[str]]:
     """
-    Catalog Items API から商品のカタログタイトルとメイン画像URLを取得する。
-    JP → AU の順で試み、どちらも取得できなければ Amazon 標準 URL を返す。
+    Catalog Items API から商品タイトルと全商品画像URLリストを取得する。
+    JP → AU の順で試み、最大 MAX_EBAY_IMAGES 枚まで収集する。
+
+    eBay は最大12枚まで掲載可能。複数画像があると「実物感・信頼感」が増し
+    購買率が上がる（MAIN1枚より PT01〜PT07 のマルチアングルが効果的）。
 
     Returns:
-        (catalog_title, image_url)
-        catalog_title: カタログに登録された正式な商品名（''の場合は AU Reports タイトルを使う）
-        image_url:     商品メイン画像 URL（必ず非空）
+        (catalog_title: str, image_urls: list[str])
+        image_urls: MAIN を先頭に最大12枚。必ず1枚以上（フォールバックあり）
     """
+    MAX_EBAY_IMAGES = 12
+    # eBay が推奨する掲載順: MAIN を先頭、角度違い→詳細→ライフスタイルの順
+    VARIANT_ORDER = ["MAIN", "PT01", "PT02", "PT03", "PT04", "PT05",
+                     "PT06", "PT07", "TOPP", "FRNT", "SIDE", "BACK",
+                     "BOTT", "LTHT", "BKGR"]
+
     catalog_title = ""
-    image_url = ""
+    images_by_variant: dict[str, str] = {}
 
     for creds, marketplace_id, marketplace in [
         (_JP_CREDS, config.MARKETPLACE_JP, Marketplaces.JP),
@@ -211,7 +225,7 @@ def get_product_info(asin: str) -> tuple[str, str]:
             )
             payload = resp.payload or {}
 
-            # カタログタイトル取得（まだ取れていなければ）
+            # カタログタイトル取得
             if not catalog_title:
                 for s in payload.get("summaries", []):
                     t = s.get("itemName", "").strip()
@@ -219,35 +233,49 @@ def get_product_info(asin: str) -> tuple[str, str]:
                         catalog_title = t
                         break
 
-            # 画像取得（まだ取れていなければ）
-            if not image_url:
-                for img_set in payload.get("images", []):
-                    for img in img_set.get("images", []):
-                        if img.get("variant") == "MAIN":
-                            url = img.get("link", "")
-                            if url:
-                                image_url = url.replace("http://", "https://")
-                                break
-                    if image_url:
-                        break
+            # 全バリアント画像を収集（既に取得済みのバリアントは上書きしない）
+            for img_set in payload.get("images", []):
+                for img in img_set.get("images", []):
+                    variant = img.get("variant", "")
+                    url     = (img.get("link") or "").strip()
+                    if variant and url and variant not in images_by_variant:
+                        images_by_variant[variant] = url.replace("http://", "https://")
 
         except Exception:
             pass
 
-        if catalog_title and image_url:
-            break  # 両方取れたら打ち切り
+        # タイトルと MAIN 画像が取れたら JP だけで十分
+        if catalog_title and "MAIN" in images_by_variant:
+            break
 
-    # 画像フォールバック: Amazon 標準画像 URL
-    if not image_url:
-        image_url = f"https://m.media-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
+    # VARIANT_ORDER 順に並べ、最大 MAX_EBAY_IMAGES 枚に絞る
+    ordered_urls = []
+    for v in VARIANT_ORDER:
+        if v in images_by_variant:
+            ordered_urls.append(images_by_variant[v])
+    # VARIANT_ORDER に含まれないバリアントも末尾に追加
+    for v, url in images_by_variant.items():
+        if v not in VARIANT_ORDER and url not in ordered_urls:
+            ordered_urls.append(url)
+    ordered_urls = ordered_urls[:MAX_EBAY_IMAGES]
 
-    return catalog_title, image_url
+    # フォールバック: Catalog API で1枚も取れなかった場合
+    if not ordered_urls:
+        ordered_urls = [
+            f"https://m.media-amazon.com/images/P/{asin}.01._SCLZZZZZZZ_.jpg"
+        ]
+
+    logger.info("[ebay_lister] 画像取得: %s → %d枚 (%s)",
+                asin, len(ordered_urls),
+                ", ".join(images_by_variant.keys())[:60])
+
+    return catalog_title, ordered_urls
 
 
 def get_product_image(asin: str) -> str:
     """後方互換ラッパー（catalog_title は不要な呼び出し元用）"""
-    _, image_url = get_product_info(asin)
-    return image_url
+    _, image_urls = get_product_info(asin)
+    return image_urls[0] if image_urls else ""
 
 
 # ─────────────────────────────────────────────
@@ -256,16 +284,34 @@ def get_product_image(asin: str) -> str:
 
 def calc_ebay_usd_price(jp_price_jpy: int, jpy_to_usd: float) -> float:
     """
-    JP仕入値から eBay USD 出品価格を計算する。
-    利益 = MIN_PROFIT_RATE、送料 = DHL_SHIPPING_JPY、手数料 = EBAY_FEE_RATE
+    JP仕入値から eBay USD 出品価格（商品代金のみ）を計算する。
+
+    送料は buyer 負担（US $25 / 国際 $30）に変更済み。
+    eBay FVF は (item_price + shipping) の合計にかかるため shipping 分を逆算して除く。
+
+    計算式:
+      required_net = jp仕入USD × (1 + 利益率) + DHL運送費USD
+        ↑ eBay 手数料前の必要受取額（jp 仕入れに対して利益率確保、DHL は実費）
+      required_total = required_net ÷ (1 − eBay手数料率)
+        ↑ buyer が払う (item_price + shipping) の最低合計
+      item_price = required_total − US送料($25)
+        ↑ US 送料基準で計算（保守的）。shipping 分は buyer から別途回収。
+
+    効果: 旧来（送料込み）vs 新（送料別）
+      jp¥5,000 の例（JPY→USD=0.0067）:
+        旧: item $97.4（送料 $0）  ← 検索では高く見える
+        新: item $72.4（送料 +$25）← $25 安く見える、利益率は同等
     """
-    required_revenue_jpy = (
-        jp_price_jpy * (1 + config.MIN_PROFIT_RATE / 100)
-        + config.DHL_SHIPPING_JPY
-    )
-    net_usd = required_revenue_jpy * jpy_to_usd
-    price_usd = net_usd / (1 - config.EBAY_FEE_RATE)
-    return round(price_usd, 2)
+    jp_cost_usd  = jp_price_jpy * jpy_to_usd
+    dhl_cost_usd = config.DHL_SHIPPING_JPY * jpy_to_usd
+
+    # 必要受取合計（buyer が払う item + shipping の最低ライン）
+    required_net   = jp_cost_usd * (1 + config.MIN_PROFIT_RATE / 100) + dhl_cost_usd
+    required_total = required_net / (1 - config.EBAY_FEE_RATE)
+
+    # 送料 $25 は buyer 負担なので item_price から差し引く
+    item_price = required_total - config.EBAY_SHIPPING_US_USD
+    return round(max(item_price, 1.0), 2)
 
 
 # ─────────────────────────────────────────────
@@ -278,6 +324,10 @@ def main():
     parser.add_argument("--max-new", type=int, default=200, help="新規出品上限（デフォルト200）")
     parser.add_argument("--sync-only", action="store_true",
                         help="新規出品なし、価格同期・終了のみ")
+    parser.add_argument("--fix-shipping", action="store_true",
+                        help="既存 eBay 出品の送料を US$25/国際$30 に一括更新（価格も新計算式で再設定）")
+    parser.add_argument("--fix-images", action="store_true",
+                        help="既存 eBay 出品に複数画像（最大12枚）を一括追加")
     args = parser.parse_args()
 
     if not config.EBAY_USER_TOKEN and not args.dry_run:
@@ -286,6 +336,89 @@ def main():
 
     if args.dry_run:
         logger.info("[ebay_lister] *** DRY-RUN モード ***")
+
+    # ── --fix-shipping: 既存出品の送料 + 価格を一括更新 ─────────────────
+    if args.fix_shipping:
+        jpy_to_usd = get_jpy_to_usd()
+        logger.info("[ebay_lister] 送料一括修正モード (US$%.0f / Intl$%.0f)",
+                    config.EBAY_SHIPPING_US_USD, config.EBAY_SHIPPING_INTL_USD)
+
+        ebay_listings = ebay_api.get_active_listings()
+        if not ebay_listings:
+            print("eBay アクティブ出品なし")
+            return
+
+        # custom_label (ASIN) → ItemID マップ（タイトルも保持）
+        asin_to_item = {v["custom_label"]: k for k, v in ebay_listings.items()
+                        if v.get("custom_label")}
+        asin_to_title = {v["custom_label"]: v.get("title", "") for v in ebay_listings.values()
+                         if v.get("custom_label")}
+        asins = list(asin_to_item.keys())
+        logger.info("[ebay_lister] 対象: %d件", len(asins))
+
+        # JP 価格を取得して新しい item 価格を計算
+        jp_prices = get_jp_prices_bulk(asins)
+
+        updated = failed = skipped = 0
+        for asin, item_id in asin_to_item.items():
+            jp_price, in_stock = jp_prices.get(asin, (None, False))
+            if not jp_price:
+                logger.info("[ebay_lister][fix] JP価格不明: %s", asin)
+                skipped += 1
+                continue
+
+            new_price = calc_ebay_usd_price(jp_price, jpy_to_usd)
+            old_price = ebay_listings[item_id]["price_usd"]
+            title     = asin_to_title.get(asin, "")
+
+            if args.dry_run:
+                print(f"[DRY] {asin}  ItemID={item_id}  ${old_price:.2f}→${new_price:.2f}  "
+                      f"US$%.0f/Intl$%.0f  desc={'yes' if title else 'no'}"
+                      % (config.EBAY_SHIPPING_US_USD, config.EBAY_SHIPPING_INTL_USD))
+                updated += 1
+            else:
+                if ebay_api.revise_shipping_and_price(item_id, new_price, title=title):
+                    print(f"OK  {asin}  ${old_price:.2f}→${new_price:.2f}  "
+                          f"US${config.EBAY_SHIPPING_US_USD:.0f}/Intl${config.EBAY_SHIPPING_INTL_USD:.0f}")
+                    updated += 1
+                else:
+                    print(f"NG  {asin}  ItemID={item_id}")
+                    failed += 1
+            time.sleep(EBAY_INTERVAL)
+
+        print(f"\n送料修正完了: {updated}件  失敗: {failed}件  スキップ: {skipped}件")
+        return
+
+    # ── --fix-images: 既存出品に複数画像を一括追加 ──────────────────────
+    if args.fix_images:
+        logger.info("[ebay_lister] 複数画像追加モード（最大12枚）")
+        ebay_listings = ebay_api.get_active_listings()
+        if not ebay_listings:
+            print("eBay アクティブ出品なし")
+            return
+        asin_to_item = {v["custom_label"]: k for k, v in ebay_listings.items()
+                        if v.get("custom_label")}
+        updated = failed = skipped = 0
+        for asin, item_id in asin_to_item.items():
+            _, image_urls = get_product_info(asin)
+            time.sleep(0.3)
+            if len(image_urls) <= 1:
+                logger.info("[ebay_lister][img] 1枚のみ、スキップ: %s", asin)
+                skipped += 1
+                continue
+            if args.dry_run:
+                print(f"[DRY] {asin}  ItemID={item_id}  {len(image_urls)}枚")
+                updated += 1
+            else:
+                if ebay_api.revise_images(item_id, image_urls):
+                    print(f"OK  {asin}  {len(image_urls)}枚")
+                    updated += 1
+                else:
+                    print(f"NG  {asin}  ItemID={item_id}")
+                    failed += 1
+            time.sleep(EBAY_INTERVAL)
+        print(f"\n画像追加完了: {updated}件  失敗: {failed}件  1枚のみスキップ: {skipped}件")
+        return
 
     jpy_to_usd = get_jpy_to_usd()
     jpy_to_aud = get_jpy_to_aud()
@@ -360,10 +493,10 @@ def main():
         if listed >= args.max_new:
             continue
 
-        # カタログタイトルと画像を一括取得
-        # カタログタイトルを優先: AU Reports の seller title（手入力）より正確で
-        # 画像と同じ ASIN に紐付いているためタイトル/画像のミスマッチを防ぐ
-        catalog_title, image_url = get_product_info(asin)
+        # カタログタイトルと全画像を取得
+        # カタログタイトルを優先: AU Reports の seller title より正確
+        # 複数画像: MAIN + PT01〜PT07 等、最大12枚まで取得してeBayに掲載
+        catalog_title, image_urls = get_product_info(asin)
         time.sleep(0.3)
 
         # タイトル決定: JP/AU カタログ > AU Reports seller title > ASIN
@@ -373,13 +506,15 @@ def main():
             logger.info("[ebay_lister] タイトル上書き: '%s' → '%s'",
                         title[:40], catalog_title[:40])
 
-        log_msg = f"{asin} | {ebay_title[:40]} | ${price_usd:.2f} (JP¥{jp_price:,})"
+        log_msg = (f"{asin} | {ebay_title[:40]} | ${price_usd:.2f} "
+                   f"(JP¥{jp_price:,}) | 画像{len(image_urls)}枚")
 
         if args.dry_run:
             logger.info("[ebay_lister][DRY] 出品予定: %s", log_msg)
             listed_details.append({
                 "asin": asin, "title": ebay_title,
                 "jp_price": jp_price, "price_usd": price_usd,
+                "image_count": len(image_urls),
             })
             listed += 1
             continue
@@ -387,7 +522,7 @@ def main():
         item_id = ebay_api.add_item(
             title=ebay_title,
             price_usd=price_usd,
-            image_url=image_url,
+            image_urls=image_urls,
             custom_label=asin,
         )
         if item_id:
