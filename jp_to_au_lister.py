@@ -462,8 +462,8 @@ def main():
     parser = argparse.ArgumentParser(description="Amazon JP → AU 直送出品")
     parser.add_argument("--dry-run",    action="store_true",
                         help="出品しない（確認のみ）/ 削除系は削除しない")
-    parser.add_argument("--max-new",    type=int, default=200,
-                        help="新規出品上限（デフォルト200）")
+    parser.add_argument("--max-new",    type=int, default=500,
+                        help="新規出品上限（デフォルト500 / 実質はフィルタが上限）")
     parser.add_argument("--rank-limit", type=int, default=30000,
                         help="JP ランク上限（デフォルト30000）")
     parser.add_argument("--max-pages",  type=int, default=3,

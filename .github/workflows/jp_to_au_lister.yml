@@ -12,7 +12,7 @@ on:
       max_new:
         description: '新規出品上限'
         type: string
-        default: '50'
+        default: '500'
       max_price:
         description: 'AU出品価格上限 AUD（A$1000超は豪州税関リスク）'
         type: string
