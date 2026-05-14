@@ -164,12 +164,6 @@ TARGET_JP_SEARCHES = [
     # ── スポーツ ────────────────────────────────────────────────
     ("卓球用品",          "table tennis paddle butterfly",  "2028991051"),
     ("弓道・アーチェリー","archery japanese bow arrow",     "2028991051"),
-    # ── 腕時計（JP価格優位・AU/欧米需要高）──────────────────────
-    ("セイコープレサージ",   "seiko presage japan watch",           ""),
-    ("セイコープロスペックス","seiko prospex turtle srpc turtle",   ""),
-    ("シチズンプロマスター", "citizen promaster eco drive japan",   ""),
-    ("G-SHOCK",             "casio g-shock gw japan",              ""),
-    ("セイコー5スポーツ",   "seiko 5 sports automatic japan",      ""),
     # ── 美容・健康グッズ（雑貨扱い・規制リスク低）───────────────
     ("コンニャクスポンジ",  "konjac sponge facial japan",          ""),
     ("美顔ローラー",        "face roller jade gua sha japan",      ""),
@@ -211,8 +205,6 @@ TARGET_JP_BRANDS = [
     "Strymon", "Zoom", "Tascam", "Focusrite", "Mooer",
     # 文房具
     "Pilot", "Uni Mitsubishi",
-    # 腕時計（新規追加）
-    "Seiko", "Citizen", "Casio",
     # 美容家電（新規追加）
     "YA-MAN", "Panasonic",
     # 包丁（新規追加）
