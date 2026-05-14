@@ -170,12 +170,13 @@ TARGET_JP_SEARCHES = [
     ("シチズンプロマスター", "citizen promaster eco drive japan",   ""),
     ("G-SHOCK",             "casio g-shock gw japan",              ""),
     ("セイコー5スポーツ",   "seiko 5 sports automatic japan",      ""),
-    # ── スキンケア・美容（日本限定ライン・AU入手困難）────────────
-    ("ハダラボ極潤",        "hada labo gokujyun japan lotion",     ""),
-    ("SK-II",               "sk-ii pitera essence treatment japan",""),
-    ("資生堂パーフェクトホイップ","shiseido perfect whip japan",   ""),
-    ("ちふれ",              "chifure japan cosmetics lipstick",    ""),
-    ("肌研",                "rohto hada labo japan skincare",      ""),
+    # ── 美容・健康グッズ（雑貨扱い・規制リスク低）───────────────
+    ("コンニャクスポンジ",  "konjac sponge facial japan",          ""),
+    ("美顔ローラー",        "face roller jade gua sha japan",      ""),
+    ("YA-MAN美顔器",        "ya-man rf facial device japan",       ""),
+    ("爪切り匠の技",        "japanese nail clipper takumi no waza",""),
+    ("耳かき",              "japanese ear pick ear cleaner",       ""),
+    ("パナソニック美容家電", "panasonic beauty hair care japan",   ""),
     # ── 包丁・キッチン（JP生産・高品質）─────────────────────────
     ("Macナイフ",           "mac knife chef professional japan",   ""),
     ("グローバル包丁",      "global knife japanese chef stainless",""),
@@ -212,8 +213,8 @@ TARGET_JP_BRANDS = [
     "Pilot", "Uni Mitsubishi",
     # 腕時計（新規追加）
     "Seiko", "Citizen", "Casio",
-    # スキンケア（新規追加）
-    "Hada Labo", "SK-II", "Shiseido",
+    # 美容家電（新規追加）
+    "YA-MAN", "Panasonic",
     # 包丁（新規追加）
     "Mac Knife", "Global", "Zwilling",
     # バイク（新規追加）
