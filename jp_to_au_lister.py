@@ -199,7 +199,7 @@ def decide_listing_price(
     戦略:
       - 市場最安値から BUYBOX_UNDERCUT_RATE 分引く（デフォルト 1% 引き）
       - 利益が出ない場合は最低利益価格（calc_optimal_au_price）まで引き上げ
-      - それでも市場より高くなる場合は出品しない
+      - 粗利率が MIN_PROFIT_RATE 未満なら出品しない（市場価格との比較は不要）
 
     Returns:
         (is_viable: bool, our_price_aud: float, profit_rate: float)
@@ -211,12 +211,8 @@ def decide_listing_price(
     # BuyBox 狙い: 現在の最安値からわずかに引く
     undercut = round(au_market_aud * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
 
-    # 利益が出る範囲で最安値に設定
+    # 利益が出る範囲で最安値に設定（市場より高くなっても利益優先）
     our_price = max(undercut, min_price)
-
-    # 市場価格の 2% 超え → 競合不可 → スキップ
-    if our_price > au_market_aud * 1.02:
-        return False, our_price, 0.0
 
     result = calc_profit(asin, title, jp_price_jpy, our_price, jpy_to_aud, weight_kg)
     return result.is_profitable, our_price, result.profit_rate
