@@ -164,6 +164,27 @@ TARGET_JP_SEARCHES = [
     # ── スポーツ ────────────────────────────────────────────────
     ("卓球用品",          "table tennis paddle butterfly",  "2028991051"),
     ("弓道・アーチェリー","archery japanese bow arrow",     "2028991051"),
+    # ── 腕時計（JP価格優位・AU/欧米需要高）──────────────────────
+    ("セイコープレサージ",   "seiko presage japan watch",           ""),
+    ("セイコープロスペックス","seiko prospex turtle srpc turtle",   ""),
+    ("シチズンプロマスター", "citizen promaster eco drive japan",   ""),
+    ("G-SHOCK",             "casio g-shock gw japan",              ""),
+    ("セイコー5スポーツ",   "seiko 5 sports automatic japan",      ""),
+    # ── スキンケア・美容（日本限定ライン・AU入手困難）────────────
+    ("ハダラボ極潤",        "hada labo gokujyun japan lotion",     ""),
+    ("SK-II",               "sk-ii pitera essence treatment japan",""),
+    ("資生堂パーフェクトホイップ","shiseido perfect whip japan",   ""),
+    ("ちふれ",              "chifure japan cosmetics lipstick",    ""),
+    ("肌研",                "rohto hada labo japan skincare",      ""),
+    # ── 包丁・キッチン（JP生産・高品質）─────────────────────────
+    ("Macナイフ",           "mac knife chef professional japan",   ""),
+    ("グローバル包丁",      "global knife japanese chef stainless",""),
+    ("ツヴィリング",        "zwilling j.a. henckels knife japan",  ""),
+    ("貝印関孫六",          "kai seki magoroku knife japan",       ""),
+    # ── バイク用品（JP限定モデル・AU高需要）─────────────────────
+    ("アライヘルメット",    "arai helmet motorcycle japan rx7",    ""),
+    ("SHOEIヘルメット",     "shoei helmet motorcycle japan nxr",   ""),
+    ("コミネ バイクウェア", "komine motorcycle jacket japan",      ""),
 ]
 
 # ブランド検索（上記カテゴリに加えてブランド別にも検索）
@@ -189,6 +210,14 @@ TARGET_JP_BRANDS = [
     "Strymon", "Zoom", "Tascam", "Focusrite", "Mooer",
     # 文房具
     "Pilot", "Uni Mitsubishi",
+    # 腕時計（新規追加）
+    "Seiko", "Citizen", "Casio",
+    # スキンケア（新規追加）
+    "Hada Labo", "SK-II", "Shiseido",
+    # 包丁（新規追加）
+    "Mac Knife", "Global", "Zwilling",
+    # バイク（新規追加）
+    "Arai", "Shoei",
 ]
 
 
