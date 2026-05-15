@@ -1,0 +1,50 @@
+name: No-JP Price Optimizer
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # 毎週月曜7時UTC（日本時間16時）※gemini_analysis(9時UTC)より前
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: '実際に価格更新する（falseはドライラン）'
+        type: boolean
+        default: false
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run No-JP Price Optimizer
+        env:
+          AMAZON_JP_REFRESH_TOKEN:    ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
+          AMAZON_JP_LWA_CLIENT_ID:    ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}
+          AMAZON_JP_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_JP_LWA_CLIENT_SECRET }}
+          AMAZON_AU_REFRESH_TOKEN:    ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID:    ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+          AMAZON_AU_SELLER_ID:        ${{ secrets.AMAZON_AU_SELLER_ID }}
+          GMAIL_USER:                 ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:         ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL:               ${{ secrets.NOTIFY_EMAIL }}
+          MIN_PROFIT_RATE:            ${{ secrets.MIN_PROFIT_RATE }}
+          DHL_SHIPPING_JPY:           ${{ secrets.DHL_SHIPPING_JPY }}
+          SOLO_UPLIFT_RATE:           '0.10'
+          SOLO_MAX_MULT:              '1.50'
+        run: |
+          if [ "${{ github.event.inputs.apply }}" = "true" ]; then
+            python no_jp_optimizer.py --apply
+          else
+            python no_jp_optimizer.py
+          fi
