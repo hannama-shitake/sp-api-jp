@@ -186,7 +186,7 @@ def ask_gemini(data: list, exchange_rate: float) -> str:
 ## 現状データ
 - 総出品数: {total}件
 - 為替レート: 1 JPY = {exchange_rate:.4f} AUD
-- 利益あり（30%以上）: {len(profitable)}件
+- 利益あり（{config.MIN_PROFIT_RATE:.0f}%以上）: {len(profitable)}件
 - 利益なし: {len(no_profit)}件
 - JP価格なし: {len(no_jp)}件
 
