@@ -97,18 +97,25 @@ def _get_listed_jp_asins() -> set:
         return set()
 
 
-def _mark_listed(asin: str, price_aud: float) -> None:
+def _mark_listed(asin: str, price_aud: float, weight_kg: float = None) -> None:
     """出品完了した ASIN を arbitrage.db に記録する（重複出品防止）。"""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         now = datetime.now(timezone.utc).isoformat()
+        # listings テーブルに出品記録（current_price_aud も保存）
         c.execute(
             """INSERT OR REPLACE INTO listings
-               (asin, sku, platform, status, listed_at, updated_at)
-               VALUES (?, ?, 'amazon_au', 'active', ?, ?)""",
-            (asin, f"JP-{asin}", now, now),
+               (asin, sku, platform, status, current_price_aud, listed_at, updated_at)
+               VALUES (?, ?, 'amazon_au', 'active', ?, ?, ?)""",
+            (asin, f"JP-{asin}", price_aud, now, now),
         )
+        # weight_kg が取得できた場合は asin_candidates にも保存
+        if weight_kg is not None:
+            c.execute(
+                "UPDATE asin_candidates SET weight_kg=? WHERE asin=?",
+                (weight_kg, asin),
+            )
         conn.commit()
         conn.close()
     except Exception as e:
@@ -770,7 +777,7 @@ def main():
             logger.info("[jp2au] 出品完了: %s", log_msg)
             listed_details.append(p)
             listed += 1
-            _mark_listed(asin, p["our_price"])   # DB に記録（重複防止）
+            _mark_listed(asin, p["our_price"], weight_kg=p.get("weight_kg"))   # DB に記録（重複防止・重量保存）
         else:
             logger.warning("[jp2au] 出品失敗: %s", asin)
             failed += 1

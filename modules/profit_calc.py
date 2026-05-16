@@ -29,22 +29,25 @@ def get_shipping_jpy(weight_kg: Optional[float] = None) -> int:
     """
     重量に基づいて国際送料(円)を返す。
 
-    重量不明              → DEFAULT_WEIGHT_KG（デフォルト1.0kg）扱いで計算（保守的）
+    重量不明              → DEFAULT_WEIGHT_KG（1.0kg）扱いで計算（保守的）
     0 〜 1kg未満          → DHL基本料（¥3,800）
-    1kg 〜 DHL上限(2kg)   → DHL + 重量サーチャージ（+¥2,500）
-    2kg超                 → EMS/eパケット + 重量サーチャージ
+    1kg 〜 2kg            → DHL + 重量サーチャージ（¥3,800+¥2,500=¥6,300）
+    2kg超                 → EMS料金テーブル（日本郵便 JP→AU 実費ベース）
+                            2kg=¥4,100 / 3kg=¥5,200 / 5kg=¥7,300 / 10kg=¥12,350
+                            近似式: ¥4,100 + (kg-2.0) × ¥1,050
 
-    ★ weight=None を 0kg 扱い（DHL最安値）にすると重量品で損失が出るため、
-      DEFAULT_WEIGHT_KG で保守的に計算する。
+    ★ weight=None を 0kg 扱いにすると重量品で損失が出るため DEFAULT_WEIGHT_KG で保守的計算
+    ★ EMS_SHIPPING_JPY（旧2,500円）は実態と乖離していたため廃止し重量別計算に変更
     """
     if weight_kg is None:
-        weight_kg = config.DEFAULT_WEIGHT_KG  # 重量不明は保守的デフォルト（1kg）扱い
+        weight_kg = config.DEFAULT_WEIGHT_KG  # 重量不明は1kg扱い（保守的）
     if weight_kg < config.HEAVY_ITEM_THRESHOLD_KG:
-        return config.DHL_SHIPPING_JPY
-    # 1kg以上 → 追加送料
+        return config.DHL_SHIPPING_JPY                                      # ~1kg: DHL ¥3,800
     if weight_kg <= config.DHL_MAX_WEIGHT_KG:
-        return config.DHL_SHIPPING_JPY + config.HEAVY_SHIPPING_SURCHARGE_JPY
-    return config.EMS_SHIPPING_JPY + config.HEAVY_SHIPPING_SURCHARGE_JPY
+        return config.DHL_SHIPPING_JPY + config.HEAVY_SHIPPING_SURCHARGE_JPY  # 1-2kg: ¥6,300
+    # 2kg超: 郵便局EMS JP→AU 実費ベース近似式
+    ems_jpy = int(4100 + (weight_kg - 2.0) * 1050)
+    return ems_jpy
 
 
 def calc_profit(

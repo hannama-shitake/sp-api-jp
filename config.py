@@ -68,6 +68,9 @@ HANDLING_TIME_DAYS = int(os.getenv("HANDLING_TIME_DAYS", "4"))
 # 競合最安値からこのレートだけ引いた価格で出品（Featured Offer獲得狙い）
 # 0.01 = 1%アンダーカット。0.0 にすると同額マッチ（従来の挙動）
 BUYBOX_UNDERCUT_RATE = float(os.getenv("BUYBOX_UNDERCUT_RATE", "0.01"))
+# 競合価格が min_price の何倍未満の場合「価格ダンパー（損益ギリギリの安値セラー）」と判断してアンダーカットしない
+# 例: 1.15 → 競合が min_price × 1.15 = 利益ライン+15%未満なら min_price を維持（100ドル安値セラーに追随しない）
+BUYBOX_MIN_GAP_RATIO = float(os.getenv("BUYBOX_MIN_GAP_RATIO", "1.15"))
 
 # ── スケジューラー設定 ────────────────────────────────────────
 SCHEDULER_EXCHANGE_RATE_MINUTES = int(os.getenv("SCHEDULER_EXCHANGE_RATE_MINUTES", "30"))
