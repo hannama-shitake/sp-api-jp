@@ -29,13 +29,16 @@ def get_shipping_jpy(weight_kg: Optional[float] = None) -> int:
     """
     重量に基づいて国際送料(円)を返す。
 
-    重量不明              → DHL基本料（¥3,800）
+    重量不明              → DEFAULT_WEIGHT_KG（デフォルト1.0kg）扱いで計算（保守的）
     0 〜 1kg未満          → DHL基本料（¥3,800）
-    1kg 〜 DHL上限(2kg)   → DHL + 重量サーチャージ（+¥5,000）
+    1kg 〜 DHL上限(2kg)   → DHL + 重量サーチャージ（+¥2,500）
     2kg超                 → EMS/eパケット + 重量サーチャージ
+
+    ★ weight=None を 0kg 扱い（DHL最安値）にすると重量品で損失が出るため、
+      DEFAULT_WEIGHT_KG で保守的に計算する。
     """
     if weight_kg is None:
-        return config.DHL_SHIPPING_JPY
+        weight_kg = config.DEFAULT_WEIGHT_KG  # 重量不明は保守的デフォルト（1kg）扱い
     if weight_kg < config.HEAVY_ITEM_THRESHOLD_KG:
         return config.DHL_SHIPPING_JPY
     # 1kg以上 → 追加送料

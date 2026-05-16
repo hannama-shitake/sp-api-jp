@@ -129,6 +129,73 @@ AU_BATCH_INTERVAL = 2.1   # get_competitive_pricing: 0.5 req/s
 LIST_INTERVAL     = 0.5   # ListingsItems PUT
 TYPE_INTERVAL     = 0.5   # CatalogItems productType 取得
 
+_JP_CREDS = {
+    "refresh_token":     config.AMAZON_JP_CREDENTIALS["refresh_token"],
+    "lwa_app_id":        config.AMAZON_JP_CREDENTIALS["lwa_app_id"],
+    "lwa_client_secret": config.AMAZON_JP_CREDENTIALS["lwa_client_secret"],
+}
+
+
+# ─────────────────────────────────────────────
+# JP CatalogItems から重量取得（search API が返さない場合の補完）
+# ─────────────────────────────────────────────
+
+def _fetch_weight_kg_jp(asin: str) -> Optional[float]:
+    """
+    JP CatalogItems API (get_catalog_item) から重量(kg)を取得する。
+    searchCatalogItems は dimensions を返さないことが多いため、
+    出品前に個別 ASIN で確認する。
+
+    Returns: float (kg) or None (API未取得 or 重量データなし)
+    """
+    try:
+        api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP,
+                           version="2022-04-01")
+        resp = api.get_catalog_item(
+            asin,
+            marketplaceIds=[config.MARKETPLACE_JP],
+            includedData=["dimensions"],
+        )
+        payload = resp.payload or {}
+        dims = payload.get("dimensions") or []
+        # ebay_jp_discover._extract_weight_kg と同ロジック
+        for dim in dims:
+            w = dim.get("weight") or {}
+            val, unit = w.get("value"), (w.get("unit") or "").lower()
+            if val is None:
+                continue
+            val = float(val)
+            if "kilogram" in unit or unit == "kg":
+                kg = val
+            elif "gram" in unit:
+                kg = val / 1000.0
+            elif "pound" in unit or "lb" in unit:
+                kg = val * 0.453592
+            else:
+                continue
+
+            # 容積重量も計算して大きい方を採用
+            def to_cm(d):
+                v2, u2 = d.get("value"), (d.get("unit") or "").lower()
+                if v2 is None:
+                    return None
+                v2 = float(v2)
+                if "centimeter" in u2 or u2 == "cm": return v2
+                if "inch" in u2:                      return v2 * 2.54
+                if "millimeter" in u2 or u2 == "mm":  return v2 / 10.0
+                return None
+
+            l_cm = to_cm(dim.get("length") or {})
+            w_cm = to_cm(dim.get("width")  or {})
+            h_cm = to_cm(dim.get("height") or {})
+            vol_kg = round(l_cm * w_cm * h_cm / 5000.0, 3) if (l_cm and w_cm and h_cm) else None
+            candidates = [k for k in [kg, vol_kg] if k is not None]
+            if candidates:
+                return round(max(candidates), 3)
+    except Exception as e:
+        logger.debug("[jp2au] %s: 重量取得失敗 - %s", asin, e)
+    return None
+
 
 # ─────────────────────────────────────────────
 # AU 競合価格取得（＝ AU 存在確認兼用）
@@ -642,6 +709,7 @@ def main():
 
     # ── STEP 5: Amazon AU 出品 ───────────────────────────────────
     listed = failed = 0
+    skipped_heavy = 0   # 重量超過でスキップした件数
     listed_details = []
 
     for i, p in enumerate(profitable):
@@ -650,13 +718,46 @@ def main():
                         args.max_new, len(profitable) - i)
             break
 
-        asin     = p["asin"]
+        asin = p["asin"]
+
+        # ── 重量確認（出品前に JP CatalogItems から個別取得）──────
+        # search API は dimension を返さないことが多く weight=None のまま利益計算される。
+        # 出品直前に個別 get_catalog_item で正確な重量を取得し:
+        #   MAX_LISTING_WEIGHT_KG 超 → 重量品として出品スキップ
+        #   重量取得成功 → 重量込みで利益再計算（重量品は shipping 高い）
+        wt = p.get("weight_kg")
+        if wt is None and not args.dry_run:
+            wt = _fetch_weight_kg_jp(asin)
+            if wt is not None:
+                p["weight_kg"] = wt
+                logger.debug("[jp2au] %s: 重量取得 %.3fkg", asin, wt)
+                time.sleep(TYPE_INTERVAL)
+
+                # 重量込みで利益再計算
+                viable, new_price, new_margin = decide_listing_price(
+                    asin, p["title"], p["jp_price"], p["au_market"], jpy_to_aud, wt
+                )
+                if not viable:
+                    logger.info("[jp2au] %s: 重量%.2fkg取得後に利益ライン割れ → スキップ", asin, wt)
+                    skipped_heavy += 1
+                    continue
+                p["our_price"] = new_price
+                p["margin"]    = new_margin
+
+        # 重量上限チェック（config.MAX_LISTING_WEIGHT_KG 超は国際送料が高すぎる）
+        if wt is not None and wt > config.MAX_LISTING_WEIGHT_KG:
+            logger.info("[jp2au] %s: 重量%.2fkg > 上限%.1fkg → 出品スキップ",
+                        asin, wt, config.MAX_LISTING_WEIGHT_KG)
+            skipped_heavy += 1
+            continue
+
         rank_str = f"rank{p['rank']:,}" if p["rank"] else "rank不明"
+        wt_str   = f"{wt:.2f}kg" if wt is not None else "重量不明"
         log_msg  = (
             f"[{i+1}/{len(profitable)}] {asin} | "
             f"JP¥{p['jp_price']:,} → AU市場A${p['au_market']:.2f} → "
             f"出品A${p['our_price']:.2f} | 粗利{p['margin']:.1f}% | "
-            f"{rank_str} | {p['title'][:40]}"
+            f"{wt_str} | {rank_str} | {p['title'][:40]}"
         )
 
         if args.dry_run:
@@ -693,6 +794,7 @@ def main():
         f"重複スキップ:      {skipped_dup}件",
         f"利益不足スキップ:  {skipped_profit}件",
         f"真贋NGスキップ:   {skipped_auth}件",
+        f"重量超過スキップ:  {skipped_heavy}件（>{config.MAX_LISTING_WEIGHT_KG:.0f}kg or 重量込み利益不足）",
         "",
         f"JPY→AUD: {jpy_to_aud:.6f}",
         f"MIN_PROFIT_RATE: {config.MIN_PROFIT_RATE}%",
