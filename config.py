@@ -36,7 +36,7 @@ MAX_FAIR_PRICE_RATIO = float(os.getenv("MAX_FAIR_PRICE_RATIO", "3.5"))  # Amazon
 # 1kg以上は送料が大幅増加するため追加コストを見込む
 HEAVY_ITEM_THRESHOLD_KG = float(os.getenv("HEAVY_ITEM_THRESHOLD_KG", "1.0"))   # 重量品とみなす閾値(kg)
 HEAVY_SHIPPING_SURCHARGE_JPY = int(os.getenv("HEAVY_SHIPPING_SURCHARGE_JPY", "2500"))  # 重量品追加送料(円) ※変更: HEAVY_SHIPPING_SURCHARGE_JPY Secret で上書き可
-DEFAULT_WEIGHT_KG = float(os.getenv("DEFAULT_WEIGHT_KG", "0.5"))  # 重量不明時のデフォルト(kg) → 0.5kg=DHL圏内(3800円)で計算。新規出品は個別fetch済みなので既存出品の削除抑制優先
+DEFAULT_WEIGHT_KG = float(os.getenv("DEFAULT_WEIGHT_KG", "1.0"))  # 重量不明時のデフォルト(kg) → 1.0kg扱いで計算（保守的）
 MAX_LISTING_WEIGHT_KG = float(os.getenv("MAX_LISTING_WEIGHT_KG", "1.0"))  # 出品可能な最大重量(kg) - 1kg超は国際送料が高すぎるため出品しない
 
 # AU 出品価格の上乗せ係数（粗利確保のためのバッファ）
