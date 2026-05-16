@@ -252,13 +252,34 @@ def _delete_and_demote(api, seller_id: str, sku: str, asin: str, reason: str):
 # 5. AU 価格更新 / 削除
 # ─────────────────────────────────────────────
 
+def _load_weight_map() -> dict:
+    """asin_candidates テーブルから {asin: weight_kg} を取得する"""
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT asin, weight_kg FROM asin_candidates WHERE weight_kg IS NOT NULL"
+            ).fetchall()
+        wmap = {r[0]: float(r[1]) for r in rows if r[1] is not None}
+        logger.info("[price_update] 重量DB読込: %d件", len(wmap))
+        return wmap
+    except Exception as e:
+        logger.warning("[price_update] 重量DBロード失敗（継続）: %s", e)
+        return {}
+
+
 def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exchange_rate: float, seller_id: str):
     """
     JP価格をもとに AU 出品価格を更新 or 削除する。
     条件悪化 → deleteListingsItem + DB候補戻し → 次回 recheck で再出品。
     inactive は作らない。
+
+    min_price 計算は asin_candidates に保存済みの実重量を優先する。
+    重量未取得の場合は DEFAULT_WEIGHT_KG（config.py）にフォールバック。
     """
     api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+
+    # asin_candidates から実重量を一括取得（DB未登録は None → DEFAULT_WEIGHT_KG）
+    weight_map = _load_weight_map()
 
     updated = failed = 0
     deleted_no_stock = 0    # JP在庫なし → 削除
@@ -297,7 +318,9 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
             continue
 
         # 最低利益ライン（赤字にならない最安値）
-        min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
+        # asin_candidates に実重量があればそれを使う。なければ DEFAULT_WEIGHT_KG にフォールバック。
+        weight_kg = weight_map.get(asin)  # None → get_shipping_jpy が DEFAULT_WEIGHT_KG を使用
+        min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
 
         comp_price = au_comp_prices.get(asin)
         if comp_price:
@@ -314,9 +337,21 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                     failed += 1
                 time.sleep(_AU_INTERVAL)
                 continue
-            undercut = round(comp_price * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
-            final_price = max(undercut, min_price)
-            buybox_win += 1
+
+            # ★ 競合が min_price の BUYBOX_MIN_GAP_RATIO 倍以内（＝損益ギリギリの安値セラー）の場合は
+            #   そのセラーを「ダンパー」と見なしてアンダーカット対象から外し、min_price を維持する。
+            #   例: min=$244, comp=$246 → 競合はほぼmin_priceで出品している別のJP→AUセラー。
+            #   そこを1%アンダーカットしても意味がない（利益も出ない）→ min_priceで出品。
+            if comp_price < min_price * config.BUYBOX_MIN_GAP_RATIO:
+                # 競合が利益ラインの BUYBOX_MIN_GAP_RATIO 倍未満 → 価格ダンパーと判断・min_price 維持
+                final_price = min_price
+                logger.debug("[price_update] %s: 競合AU$%.2f < min×%.2f → ダンパー無視・min_price AU$%.2f 維持",
+                             asin, comp_price, config.BUYBOX_MIN_GAP_RATIO, min_price)
+                sole_seller += 1  # FO狙いとして単独カウント（アンダーカット不要）
+            else:
+                undercut = round(comp_price * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
+                final_price = max(undercut, min_price)
+                buybox_win += 1
         else:
             current_price = float(listing.get("current_price_aud") or 0)
             sole_seller += 1
