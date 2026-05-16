@@ -325,29 +325,19 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
         comp_price = au_comp_prices.get(asin)
         if comp_price:
             if comp_price < min_price:
-                # 競合が安すぎて利益出ない → 削除 + DB候補戻し
-                try:
-                    _delete_and_demote(api, seller_id, sku, asin,
-                                       f"競合安値_{comp_price:.2f}")
-                    deleted_too_cheap += 1
-                    logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → 削除・候補DB戻し",
-                                asin, comp_price, min_price)
-                except Exception as e:
-                    logger.warning("[price_update] %s: 削除失敗 - %s", asin, e)
-                    failed += 1
-                time.sleep(_AU_INTERVAL)
-                continue
-
-            # ★ 競合が min_price の BUYBOX_MIN_GAP_RATIO 倍以内（＝損益ギリギリの安値セラー）の場合は
-            #   そのセラーを「ダンパー」と見なしてアンダーカット対象から外し、min_price を維持する。
-            #   例: min=$244, comp=$246 → 競合はほぼmin_priceで出品している別のJP→AUセラー。
-            #   そこを1%アンダーカットしても意味がない（利益も出ない）→ min_priceで出品。
-            if comp_price < min_price * config.BUYBOX_MIN_GAP_RATIO:
-                # 競合が利益ラインの BUYBOX_MIN_GAP_RATIO 倍未満 → 価格ダンパーと判断・min_price 維持
+                # 競合が安すぎて利益出ない → min_price で維持（削除しない）
+                # 理由: JPの在庫は頻繁に切れる。競合が消えた瞬間に売れるよう出品を維持する。
+                # 削除→再出品サイクルは件数を減らすだけ。
+                final_price = min_price
+                deleted_too_cheap += 1  # カウントのみ（削除はしない）
+                logger.info("[price_update] %s: 競合AU$%.2f < 最低ライン$%.2f → min_price維持（削除しない）",
+                            asin, comp_price, min_price)
+            elif comp_price < min_price * config.BUYBOX_MIN_GAP_RATIO:
+                # 競合が利益ラインのすぐ上（ダンパー） → min_price 維持
                 final_price = min_price
                 logger.debug("[price_update] %s: 競合AU$%.2f < min×%.2f → ダンパー無視・min_price AU$%.2f 維持",
                              asin, comp_price, config.BUYBOX_MIN_GAP_RATIO, min_price)
-                sole_seller += 1  # FO狙いとして単独カウント（アンダーカット不要）
+                sole_seller += 1
             else:
                 undercut = round(comp_price * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
                 final_price = max(undercut, min_price)

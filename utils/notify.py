@@ -104,27 +104,19 @@ def notify_price_update_summary(
         return  # 何も変化なければ通知しない
 
     featured_offer_est = sole_seller + buybox_win
-    subject = f"[SP-API Price] 価格更新{updated}件 / 再出品{reactivated}件 / 停止{paused}件"
+    subject = f"[SP-API Price] 価格更新{updated}件 / 再出品{reactivated}件 / JP在庫なし削除{paused_no_stock}件"
     if failed > 0:
         subject += f" / エラー{failed}件"
 
-    # 停止内訳（"ごそっと消え"の診断用）
+    # 内訳
     pause_detail = ""
-    if paused > 0:
+    if paused_no_stock > 0 or paused_too_cheap > 0 or paused_fair > 0:
         pause_detail = (
-            f"\n--- 停止内訳（消えた原因） ---\n"
-            f"  JP在庫なし:               {paused_no_stock}件\n"
-            f"  競合価格が利益ライン以下:  {paused_too_cheap}件  ← 利益率高すぎ？\n"
-            f"  フェアプライシング上限:    {paused_fair}件\n"
+            f"\n--- 内訳 ---\n"
+            f"  JP在庫なし削除:            {paused_no_stock}件\n"
+            f"  競合安値のためmin_price維持: {paused_too_cheap}件  （削除しない・競合在庫切れ待ち）\n"
+            f"  フェアプライシング削除:    {paused_fair}件\n"
         )
-        if paused_too_cheap > paused_no_stock:
-            try:
-                import config as _cfg
-                current_rate = _cfg.MIN_PROFIT_RATE
-                suggest_rate = max(current_rate - 3, 10)
-                pause_detail += f"  ⚠️ 赤字停止が多い場合は MIN_PROFIT_RATE の引き下げ（{current_rate:.0f}→{suggest_rate:.0f}%）を検討\n"
-            except Exception:
-                pause_detail += "  ⚠️ 赤字停止が多い場合は MIN_PROFIT_RATE の引き下げを検討\n"
 
     fo_lines = ""
     if featured_offer_est > 0:
