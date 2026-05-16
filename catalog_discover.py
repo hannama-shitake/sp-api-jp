@@ -976,24 +976,16 @@ def discover_and_list(
                 skipped_unprofitable += 1
                 continue
 
-        # 重量チェック（1kg以上 → 送料+¥5,000で再計算）
-        if weight_kg is not None and weight_kg >= config.HEAVY_ITEM_THRESHOLD_KG:
-            min_line_heavy = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
-            if comp_price < min_line_heavy:
-                logger.info(
-                    "[catalog_discover] %s: 重量%.2fkg → 送料+¥%d → 最低ライン$%.2f > 競合$%.2f → スキップ",
-                    asin, weight_kg, config.HEAVY_SHIPPING_SURCHARGE_JPY, min_line_heavy, comp_price,
-                )
-                skipped_unprofitable += 1
-                continue
-            # 利益が出る場合は重量込みの最低ラインを適用
-            final_price = max(comp_price, min_line_heavy)
+        # 重量チェック（MAX_LISTING_WEIGHT_KG 超 → 無条件スキップ）
+        # 1kg超は国際送料が高すぎるため出品しない（利益が出ていても送料リスクが大きい）
+        if weight_kg is not None and weight_kg >= config.MAX_LISTING_WEIGHT_KG:
             logger.info(
-                "[catalog_discover] %s: 重量%.2fkg → 送料加算済み AU$%.2f（競合$%.2f）",
-                asin, weight_kg, final_price, comp_price,
+                "[catalog_discover] %s: 重量%.2fkg >= 上限%.1fkg → 重量超過スキップ",
+                asin, weight_kg, config.MAX_LISTING_WEIGHT_KG,
             )
-        else:
-            final_price = comp_price
+            skipped_unprofitable += 1
+            continue
+        final_price = comp_price
 
         # ── 認証チェック（ListingsRestrictions API）────────────────────
         # ゲートカテゴリ・要認証ブランドを事前スクリーニング（PUT失敗を未然に防ぐ）
