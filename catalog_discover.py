@@ -435,6 +435,8 @@ def get_jp_prices_bulk(asins: list) -> dict:
                 result[asin] = (price_jpy, in_stock)
         except SellingApiException as e:
             logger.warning("[catalog_discover] JP価格バッチエラー (%s...): %s", batch[0], e)
+        except Exception as e:
+            logger.warning("[catalog_discover] JP価格タイムアウト (%s...): %s → スキップ", batch[0], e)
         time.sleep(JP_INTERVAL)
 
     # ── フォールバック: JP独占出品（in_stock=True だが price=None）の価格を取得 ──
@@ -521,25 +523,35 @@ def get_au_seller_counts(asins: list) -> dict:
     for i, asin in enumerate(asins):
         if i % 50 == 0:
             logger.info("[catalog_discover] セラー数確認中: %d/%d", i, total)
-        try:
-            resp = api.get_item_offers(asin, item_condition="New")
-            payload = resp.payload if hasattr(resp, "payload") else {}
-            offers = payload.get("Offers", [])
-
-            competitor_offers = [
-                o for o in offers
-                if o.get("SellerId", "") != my_id
-                and o.get("ListingPrice", {}).get("Amount")
-            ]
-            seller_count = len(competitor_offers)
-            min_price = (
-                min(float(o["ListingPrice"]["Amount"]) for o in competitor_offers)
-                if competitor_offers else None
-            )
-            result[asin] = {"seller_count": seller_count, "min_price": min_price}
-        except SellingApiException as e:
-            logger.warning("[catalog_discover] get_item_offers エラー %s: %s", asin, e)
-            result[asin] = {"seller_count": 0, "min_price": None}
+        for attempt in range(3):
+            try:
+                resp = api.get_item_offers(asin, item_condition="New")
+                payload = resp.payload if hasattr(resp, "payload") else {}
+                offers = payload.get("Offers", [])
+                competitor_offers = [
+                    o for o in offers
+                    if o.get("SellerId", "") != my_id
+                    and o.get("ListingPrice", {}).get("Amount")
+                ]
+                seller_count = len(competitor_offers)
+                min_price = (
+                    min(float(o["ListingPrice"]["Amount"]) for o in competitor_offers)
+                    if competitor_offers else None
+                )
+                result[asin] = {"seller_count": seller_count, "min_price": min_price}
+                break
+            except SellingApiException as e:
+                logger.warning("[catalog_discover] get_item_offers エラー %s: %s", asin, e)
+                result[asin] = {"seller_count": 0, "min_price": None}
+                break
+            except Exception as e:
+                # ReadTimeout 等のネットワークエラー → リトライ
+                if attempt < 2:
+                    logger.warning("[catalog_discover] get_item_offers タイムアウト %s (試行%d/3) → リトライ", asin, attempt + 1)
+                    time.sleep(5)
+                else:
+                    logger.warning("[catalog_discover] get_item_offers 失敗 %s: %s → スキップ", asin, e)
+                    result[asin] = {"seller_count": 0, "min_price": None}
         time.sleep(AU_PRICE_INTERVAL)
 
     three_plus = sum(1 for v in result.values() if v["seller_count"] >= 3)

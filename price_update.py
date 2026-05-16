@@ -320,6 +320,20 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
         # 最低利益ライン（赤字にならない最安値）
         # asin_candidates に実重量があればそれを使う。なければ DEFAULT_WEIGHT_KG にフォールバック。
         weight_kg = weight_map.get(asin)  # None → get_shipping_jpy が DEFAULT_WEIGHT_KG を使用
+
+        # 重量超過チェック: 実重量が判明していて MAX_LISTING_WEIGHT_KG 以上 → 即削除
+        if weight_kg is not None and weight_kg >= config.MAX_LISTING_WEIGHT_KG:
+            try:
+                _delete_and_demote(api, seller_id, sku, asin, f"重量超過_{weight_kg:.2f}kg")
+                deleted_no_stock += 1
+                logger.info("[price_update] %s: 重量%.2fkg >= 上限%.1fkg → 削除",
+                            asin, weight_kg, config.MAX_LISTING_WEIGHT_KG)
+            except Exception as e:
+                logger.warning("[price_update] %s: 重量超過削除失敗 - %s", asin, e)
+                failed += 1
+            time.sleep(_AU_INTERVAL)
+            continue
+
         min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
 
         comp_price = au_comp_prices.get(asin)
