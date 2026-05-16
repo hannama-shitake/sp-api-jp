@@ -211,6 +211,16 @@ def decide_listing_price(
     # BuyBox 狙い: 現在の最安値からわずかに引く
     undercut = round(au_market_aud * (1 - config.BUYBOX_UNDERCUT_RATE), 2)
 
+    # ★ 競合価格が既に利益ライン以下なら出品しない
+    #    → price_update.py が同じ理由で即削除するため、出品コスト（API呼出し）を無駄にしない
+    if au_market_aud > 0 and au_market_aud < min_price:
+        result = calc_profit(asin, title, jp_price_jpy, min_price, jpy_to_aud, weight_kg)
+        logger.debug(
+            "[jp2au] 競合A$%.2f < 最低利益ラインA$%.2f → 出品スキップ（price_update即削除回避）",
+            au_market_aud, min_price,
+        )
+        return False, min_price, result.profit_rate
+
     # 利益が出る範囲で最安値に設定（市場より高くなっても利益優先）
     our_price = max(undercut, min_price)
 

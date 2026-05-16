@@ -118,7 +118,13 @@ def notify_price_update_summary(
             f"  フェアプライシング上限:    {paused_fair}件\n"
         )
         if paused_too_cheap > paused_no_stock:
-            pause_detail += "  ⚠️ 赤字停止が多い場合は MIN_PROFIT_RATE の引き下げ（30→25%）を検討\n"
+            try:
+                import config as _cfg
+                current_rate = _cfg.MIN_PROFIT_RATE
+                suggest_rate = max(current_rate - 3, 10)
+                pause_detail += f"  ⚠️ 赤字停止が多い場合は MIN_PROFIT_RATE の引き下げ（{current_rate:.0f}→{suggest_rate:.0f}%）を検討\n"
+            except Exception:
+                pause_detail += "  ⚠️ 赤字停止が多い場合は MIN_PROFIT_RATE の引き下げを検討\n"
 
     fo_lines = ""
     if featured_offer_est > 0:

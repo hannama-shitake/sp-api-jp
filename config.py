@@ -30,7 +30,7 @@ EMS_SHIPPING_JPY = int(os.getenv("EMS_SHIPPING_JPY", "2500"))   # EMS/eパケッ
 DHL_MAX_WEIGHT_KG = float(os.getenv("DHL_MAX_WEIGHT_KG", "2.0"))  # DHLのkg上限
 AU_FEE_RATE = float(os.getenv("AU_FEE_RATE", "0.15"))  # Amazon AU 手数料率
 PRICE_UPDATE_THRESHOLD = float(os.getenv("PRICE_UPDATE_THRESHOLD", "3"))  # 価格変動閾値(%)
-MAX_FAIR_PRICE_RATIO = float(os.getenv("MAX_FAIR_PRICE_RATIO", "3.0"))  # Amazon Fair Pricing Policy: JP基準価格(JPY×rate)の最大倍率
+MAX_FAIR_PRICE_RATIO = float(os.getenv("MAX_FAIR_PRICE_RATIO", "3.5"))  # Amazon Fair Pricing Policy: JP基準価格(JPY×rate)の最大倍率（JP→AU送料・関税込みで3.5倍が現実的上限）
 
 # ── 重量別送料設定 ────────────────────────────────────────────
 # 1kg以上は送料が大幅増加するため追加コストを見込む
