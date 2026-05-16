@@ -1,0 +1,44 @@
+name: Listings DB Sync
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 毎日0時UTC（日本時間9時）— price_update(0/6/12/18時)の前
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ドライランモード（DB変更なし・確認のみ）'
+        type: boolean
+        default: false
+
+# 【目的】
+# Amazon AU の全出品 (~380件) を DB の listings テーブルに同期する。
+# - price_update / no_jp_optimizer が Reports API を呼ばずに DB から参照できるようになる
+# - 各スクリプトの実行時間を大幅短縮（Reports API 生成: 10-20分 → DB参照: 1秒未満）
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Sync listings to DB
+        env:
+          AMAZON_AU_REFRESH_TOKEN:    ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID:    ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python listings_sync.py --dry-run
+          else
+            python listings_sync.py
+          fi

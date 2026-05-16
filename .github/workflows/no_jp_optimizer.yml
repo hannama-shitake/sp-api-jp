@@ -26,7 +26,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run No-JP Price Optimizer
+      - name: Sync listings to DB (Reports API → DB)
+        env:
+          AMAZON_AU_REFRESH_TOKEN:    ${{ secrets.AMAZON_AU_REFRESH_TOKEN }}
+          AMAZON_AU_LWA_CLIENT_ID:    ${{ secrets.AMAZON_AU_LWA_CLIENT_ID }}
+          AMAZON_AU_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_AU_LWA_CLIENT_SECRET }}
+        run: python listings_sync.py
+
+      - name: Run No-JP Price Optimizer (DB参照で高速実行)
         env:
           AMAZON_JP_REFRESH_TOKEN:    ${{ secrets.AMAZON_JP_REFRESH_TOKEN }}
           AMAZON_JP_LWA_CLIENT_ID:    ${{ secrets.AMAZON_JP_LWA_CLIENT_ID }}

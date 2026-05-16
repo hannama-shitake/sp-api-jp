@@ -29,9 +29,11 @@ load_dotenv()
 from sp_api.api import Reports, Products, ListingsItems
 from sp_api.base import Marketplaces, SellingApiException
 import requests as _req, gzip as _gz
+import sqlite3
 
 import config
 from apis.exchange_rate import get_jpy_to_aud
+from db.database import get_active_listings, update_listing_price
 from utils.logger import get_logger
 from utils.notify import send_email
 
@@ -61,9 +63,49 @@ _JP = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 1. AU出品一覧取得
+# 1. AU出品一覧取得（DB優先 → Reports API フォールバック）
 # ─────────────────────────────────────────────────────────────
 def get_au_listings() -> list:
+    """
+    DB の listings テーブルからアクティブ出品を取得する（高速）。
+    DB が空（0件）の場合のみ Reports API にフォールバックする。
+
+    DB使用時: ~1秒
+    API使用時: ~10-20分（レポート生成待ち）
+    """
+    db_listings = get_active_listings("amazon_au")
+
+    if db_listings:
+        # DB から title を asin_candidates で補完
+        with sqlite3.connect(config.DB_PATH) as conn:
+            for l in db_listings:
+                if not l.get("title"):
+                    row = conn.execute(
+                        "SELECT title FROM asin_candidates WHERE asin=?", (l["asin"],)
+                    ).fetchone()
+                    if row and row[0]:
+                        l["title"] = row[0]
+
+        # フィールド名を整合（price キーに統一）
+        result = [
+            {
+                "asin":  l["asin"],
+                "sku":   l["sku"],
+                "price": l.get("current_price_aud") or 0.0,
+                "title": l.get("title") or "",
+            }
+            for l in db_listings
+        ]
+        logger.info("[no_jp_opt] DB から出品取得: %d件（高速モード）", len(result))
+        return result
+
+    # DB 空 → Reports API にフォールバック（初回 or listings_sync.py 未実行時）
+    logger.info("[no_jp_opt] DB 空のため Reports API から取得（listings_sync.py の実行を推奨）...")
+    return _get_au_listings_from_api()
+
+
+def _get_au_listings_from_api() -> list:
+    """Reports API から全AU出品を取得する（listings_sync.py と同ロジック）"""
     api = Reports(credentials=_AU, marketplace=Marketplaces.AU)
     resp = api.create_report(reportType="GET_MERCHANT_LISTINGS_ALL_DATA")
     rid = resp.payload["reportId"]
@@ -98,7 +140,7 @@ def get_au_listings() -> list:
         if asin and len(asin) == 10 and sku and asin not in seen and st == "active":
             seen.add(asin)
             listings.append({"asin": asin, "sku": sku, "price": price, "title": title})
-    logger.info("[no_jp_opt] アクティブ出品: %d件", len(listings))
+    logger.info("[no_jp_opt] アクティブ出品（API）: %d件", len(listings))
     return listings
 
 
@@ -295,6 +337,7 @@ def optimize(listings, jp_prices, au_comp, seller_id, apply=False):
                 try:
                     patch_price(api, seller_id, item["sku"], item["new_price"])
                     updated += 1
+                    update_listing_price(item["sku"], item["new_price"], status="active")
                     logger.info("[no_jp_opt] %s: $%.2f → $%.2f (独占値上げ)", item["asin"], item["price"], item["new_price"])
                 except Exception as e:
                     logger.warning("[no_jp_opt] %s: 更新失敗 - %s", item["asin"], e)
@@ -311,6 +354,7 @@ def optimize(listings, jp_prices, au_comp, seller_id, apply=False):
                 try:
                     patch_price(api, seller_id, item["sku"], item["new_price"])
                     updated += 1
+                    update_listing_price(item["sku"], item["new_price"], status="active")
                     logger.info("[no_jp_opt] %s: $%.2f → $%.2f (競合値上げ)", item["asin"], item["price"], item["new_price"])
                 except Exception as e:
                     logger.warning("[no_jp_opt] %s: 更新失敗 - %s", item["asin"], e)

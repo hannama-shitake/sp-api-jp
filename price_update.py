@@ -24,6 +24,7 @@ from sp_api.base import Marketplaces, SellingApiException
 
 import config
 from apis.exchange_rate import get_jpy_to_aud
+from db.database import update_listing_price, mark_listing_deleted
 from modules.profit_calc import calc_optimal_au_price, calc_profit
 from utils.logger import get_logger
 from utils.notify import notify_price_update_summary
@@ -234,13 +235,17 @@ def _demote_to_candidate(asin: str, reason: str):
 
 
 def _delete_and_demote(api, seller_id: str, sku: str, asin: str, reason: str):
-    """出品を削除 + DB を candidate に戻す"""
+    """出品を削除 + DB を candidate に戻す + listings テーブルを 'deleted' に更新"""
     api.delete_listings_item(
         sellerId=seller_id,
         sku=sku,
         marketplaceIds=[config.MARKETPLACE_AU],
     )
     _demote_to_candidate(asin, reason)
+    try:
+        mark_listing_deleted(sku)
+    except Exception as _e:
+        logger.debug("[price_update] %s: DB削除マーク失敗（継続） - %s", sku, _e)
 
 
 # ─────────────────────────────────────────────
@@ -340,6 +345,11 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
         try:
             _patch_price_and_quantity(api, seller_id, sku, final_price)
             updated += 1
+            # DB の listings テーブルを即時更新（listings_sync.py の代替として蓄積）
+            try:
+                update_listing_price(sku, final_price, status="active")
+            except Exception as _e:
+                logger.debug("[price_update] %s: DB価格更新失敗（継続） - %s", sku, _e)
             if comp_price:
                 logger.debug("[price_update] %s: 価格更新 JP¥%d → AU$%.2f [FO狙い -%.1f%% 競合$%.2f]",
                              asin, jp_price, final_price,
