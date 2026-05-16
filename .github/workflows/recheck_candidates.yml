@@ -61,7 +61,7 @@ jobs:
             ARGS="--dry-run"
           fi
           MAX="${{ github.event.inputs.max_asins }}"
-          python recheck_candidates.py $ARGS --max "${MAX:-500}"
+          python recheck_candidates.py $ARGS --max "${MAX:-2000}"
 
       - name: Upload candidates DB (artifact)
         if: always()
