@@ -1,8 +1,6 @@
 name: Find AU Sellers (Weekly Auto-Update)
 
 on:
-  schedule:
-    - cron: '0 15 * * 0'  # 毎週日曜 00:00 JST
   workflow_dispatch:
     inputs:
       max_asins:
