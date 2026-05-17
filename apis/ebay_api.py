@@ -372,7 +372,14 @@ def get_active_listings() -> dict:
                         "EntriesPerPage": 200,
                         "PageNumber": page,
                     },
-                }
+                },
+                "OutputSelector": [
+                    "ActiveList.ItemArray.Item.ItemID",
+                    "ActiveList.ItemArray.Item.Title",
+                    "ActiveList.ItemArray.Item.SellingStatus.CurrentPrice",
+                    "ActiveList.ItemArray.Item.SKU",
+                    "ActiveList.PaginationResult",
+                ],
             })
             data = resp.dict()
             active = data.get("ActiveList", {})
