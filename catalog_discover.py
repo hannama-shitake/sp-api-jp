@@ -541,8 +541,8 @@ def get_au_seller_counts(asins: list) -> dict:
                 result[asin] = {"seller_count": seller_count, "min_price": min_price}
                 break
             except SellingApiException as e:
-                logger.warning("[catalog_discover] get_item_offers エラー %s: %s", asin, e)
-                result[asin] = {"seller_count": 0, "min_price": None}
+                logger.warning("[catalog_discover] get_item_offers エラー %s: %s → セラー数1とみなす", asin, e)
+                result[asin] = {"seller_count": 1, "min_price": None}
                 break
             except Exception as e:
                 # ReadTimeout 等のネットワークエラー → リトライ
@@ -550,8 +550,8 @@ def get_au_seller_counts(asins: list) -> dict:
                     logger.warning("[catalog_discover] get_item_offers タイムアウト %s (試行%d/3) → リトライ", asin, attempt + 1)
                     time.sleep(5)
                 else:
-                    logger.warning("[catalog_discover] get_item_offers 失敗 %s: %s → スキップ", asin, e)
-                    result[asin] = {"seller_count": 0, "min_price": None}
+                    logger.warning("[catalog_discover] get_item_offers 失敗 %s: %s → セラー数1とみなす", asin, e)
+                    result[asin] = {"seller_count": 1, "min_price": None}
         time.sleep(AU_PRICE_INTERVAL)
 
     three_plus = sum(1 for v in result.values() if v["seller_count"] >= 3)
