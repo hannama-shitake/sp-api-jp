@@ -431,6 +431,34 @@ def main():
         logger.info("[ebay_lister] AU出品なし。終了")
         return
 
+    # NG・重量超過ASINをDBから取得してフィルタ
+    import sqlite3 as _sqlite3
+    _ng_asins: set = set()
+    _weight_map: dict = {}
+    try:
+        with _sqlite3.connect(config.DB_PATH) as _conn:
+            for _row in _conn.execute(
+                "SELECT asin FROM asin_candidates WHERE status='ng'"
+            ).fetchall():
+                _ng_asins.add(_row[0])
+            for _row in _conn.execute(
+                "SELECT asin, weight_kg FROM asin_candidates WHERE weight_kg IS NOT NULL"
+            ).fetchall():
+                _weight_map[_row[0]] = float(_row[1])
+        logger.info("[ebay_lister] NGリスト読込: %d件 / 重量DB: %d件",
+                    len(_ng_asins), len(_weight_map))
+    except Exception as _e:
+        logger.warning("[ebay_lister] NGリスト読込失敗（継続）: %s", _e)
+
+    _before = len(au_listings)
+    au_listings = [
+        l for l in au_listings
+        if l["asin"] not in _ng_asins
+        and _weight_map.get(l["asin"], 0) < config.MAX_LISTING_WEIGHT_KG
+    ]
+    logger.info("[ebay_lister] NG・重量フィルタ後: %d件 → %d件",
+                _before, len(au_listings))
+
     asins = [l["asin"] for l in au_listings]
     au_by_asin = {l["asin"]: l for l in au_listings}
 
