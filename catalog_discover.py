@@ -216,6 +216,7 @@ def scrape_seller_asins(
 
     all_asins: list = []
     seen = set(existing_asins)
+    scrape_prices: dict = {}  # {asin: au_price_aud} スクレイピングで取得したAU価格
 
     # プロキシリスト（セラーごとにローテーション）
     _proxy_list = config.PROXY_LIST if config.PROXY_USER else []
@@ -327,16 +328,37 @@ def scrape_seller_asins(
                     _random_scroll(page)
                     _human_delay(0.8, 2.0)
 
-                    # ── ASIN 抽出 ──
+                    # ── ASIN + AU価格 抽出 ──
                     content = page.content()
-                    raw_asins = re.findall(r'data-asin="([A-Z0-9]{10})"', content)
                     page_new = 0
-                    for asin in dict.fromkeys(raw_asins):
-                        if asin and asin not in seen:
-                            seen.add(asin)
-                            all_asins.append(asin)
-                            page_new += 1
-                            seller_new += 1
+                    items_el = page.query_selector_all('[data-asin][data-component-type="s-search-result"]')
+                    for item_el in items_el:
+                        asin = item_el.get_attribute("data-asin") or ""
+                        if not asin or len(asin) != 10 or asin in seen:
+                            continue
+                        # AU価格を取得（.a-offscreen が "AU$XX.XX" の形式）
+                        price_aud = None
+                        try:
+                            price_el = item_el.query_selector(".a-price .a-offscreen")
+                            if price_el:
+                                price_text = price_el.inner_text().replace("AU$", "").replace(",", "").strip()
+                                price_aud = float(price_text)
+                        except Exception:
+                            pass
+                        seen.add(asin)
+                        all_asins.append(asin)
+                        scrape_prices[asin] = price_aud
+                        page_new += 1
+                        seller_new += 1
+                    # フォールバック: query_selector_allが空の場合はregexでASINのみ取得
+                    if page_new == 0:
+                        raw_asins = re.findall(r'data-asin="([A-Z0-9]{10})"', content)
+                        for asin in dict.fromkeys(raw_asins):
+                            if asin and asin not in seen:
+                                seen.add(asin)
+                                all_asins.append(asin)
+                                page_new += 1
+                                seller_new += 1
 
                     logger.info("[catalog_discover] seller=%s page=%d: %d件新規（累計%d件）",
                                 seller_id, page_num, page_new, len(all_asins))
@@ -378,8 +400,9 @@ def scrape_seller_asins(
 
         browser.close()
 
-    logger.info("[catalog_discover] 全セラー 新規ASIN候補: %d件", len(all_asins))
-    return all_asins
+    logger.info("[catalog_discover] 全セラー 新規ASIN候補: %d件（価格取得済み: %d件）",
+                len(all_asins), sum(1 for p in scrape_prices.values() if p))
+    return all_asins, scrape_prices
 
 
 # ─────────────────────────────────────────────
@@ -838,7 +861,7 @@ def discover_and_list(
         return [], 0, 0, 0, 0, 0
     logger.info("[catalog_discover] 競合セラー: %d件 / 最大%dページ/セラー",
                 len(seller_urls), max_pages)
-    new_asins = scrape_seller_asins(
+    new_asins, scrape_prices = scrape_seller_asins(
         seller_urls=seller_urls,
         max_pages=max_pages,
         existing_asins=existing_asins,
@@ -876,15 +899,8 @@ def discover_and_list(
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
-    # ── Step 4: AU競合価格確認（事前フィルタ）──────────────────────
-    logger.info("[catalog_discover] AU競合価格確認: %d件 (約%.0f分)",
-                len(asins_with_stock), len(asins_with_stock) / 20 * AU_PRICE_INTERVAL / 60)
-    au_bulk_prices = get_au_competitor_prices_bulk(asins_with_stock)
-
-    # AUセラー数チェックへ渡す候補を選定
-    # get_competitive_pricing はAU競合が1人だと価格を返さないため、
-    # 「AU価格なし」≠「AU競合なし」。AU価格なしの商品もセラー数チェックへ回す。
-    # （セラー数チェックで get_item_offers を使うため実際の価格・競合数を確認できる）
+    # ── Step 4 & 5: スクレイピング価格を使用（AU競合API・セラー数確認スキップ）──
+    # スクレイピングでAU価格取得済み → APIでの競合確認は不要
     au_candidates = []
     skipped_no_au = 0
     for asin in asins_with_stock:
@@ -892,24 +908,16 @@ def discover_and_list(
         if not jp_price:
             skipped_no_au += 1
             continue
-        min_line = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
-        comp_price = au_bulk_prices.get(asin)
-        # AU価格があって明らかに利益不足な場合のみスキップ（AU価格なしは通す）
-        if comp_price is not None and comp_price < min_line:
-            skipped_no_au += 1
-            continue
         au_candidates.append(asin)
 
-    logger.info("[catalog_discover] セラー数確認候補: %d件 (JP価格なし/AU明確赤字: %d件)",
+    logger.info("[catalog_discover] 出品候補: %d件 (JP価格なし: %d件)",
                 len(au_candidates), skipped_no_au)
 
     if not au_candidates:
         return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
-    # ── Step 5: AU セラー数確認 ────────────────────────────────────
-    logger.info("[catalog_discover] セラー数確認: %d件 (約%.0f分)",
-                len(au_candidates), len(au_candidates) * AU_PRICE_INTERVAL / 60)
-    seller_counts = get_au_seller_counts(au_candidates)
+    # セラー数確認スキップ（スクレイピング元セラーが出品中＝競合確認不要）
+    seller_counts = {a: {"seller_count": 1, "min_price": scrape_prices.get(a)} for a in au_candidates}
 
     # ── Step 6 & 7: 利益確認 → 出品 ──────────────────────────────
     listings_api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
