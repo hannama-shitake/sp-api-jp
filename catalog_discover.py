@@ -899,24 +899,17 @@ def discover_and_list(
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
-    # ── Step 4 & 5: スクレイピング価格を使用（AU競合API・セラー数確認スキップ）──
-    # スクレイピングでAU価格取得済み → APIでの競合確認は不要
-    au_candidates = []
-    skipped_no_au = 0
-    for asin in asins_with_stock:
-        jp_price, _ = jp_prices.get(asin, (None, False))
-        if not jp_price:
-            skipped_no_au += 1
-            continue
-        au_candidates.append(asin)
-
-    logger.info("[catalog_discover] 出品候補: %d件 (JP価格なし: %d件)",
+    # ── Step 4 & 5: スクレイピング価格を使用（API確認を全廃）──
+    # スクレイピングでAU価格取得済み・JP価格確認もスキップ
+    # ターゲットセラーが出品中＝仕入れ可能・利益確認済みとみなす
+    au_candidates = [a for a in asins_with_stock if scrape_prices.get(a)]
+    skipped_no_au = len(asins_with_stock) - len(au_candidates)
+    logger.info("[catalog_discover] 出品候補: %d件 (スクレイピング価格なし: %d件)",
                 len(au_candidates), skipped_no_au)
 
     if not au_candidates:
         return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
-    # セラー数確認スキップ（スクレイピング元セラーが出品中＝競合確認不要）
     seller_counts = {a: {"seller_count": 1, "min_price": scrape_prices.get(a)} for a in au_candidates}
 
     # ── Step 6 & 7: 利益確認 → 出品 ──────────────────────────────
@@ -933,36 +926,23 @@ def discover_and_list(
             logger.info("[catalog_discover] 上限 %d件 に達しました", max_new)
             break
 
-        jp_price, _ = jp_prices.get(asin, (None, False))
-        if not jp_price:
-            continue
-
-        min_line = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate)
         offer_info = seller_counts.get(asin, {"seller_count": 0, "min_price": None})
 
-        if offer_info["seller_count"] < min_sellers:
-            skipped_few_sellers += 1
+        # スクレイピングで取得したAU価格をそのまま使用
+        final_price = offer_info["min_price"]
+        if not final_price:
+            skipped_unprofitable += 1
             continue
 
-        comp_price = offer_info["min_price"]
-        if comp_price is None or comp_price < min_line:
-            final_price = min_line  # 競合価格不明/安値 → min_lineで出品
-        else:
-            final_price = comp_price
-        result = calc_profit(
-            asin=asin, title="",
-            jp_price_jpy=jp_price, au_price_aud=final_price,
-            exchange_rate=exchange_rate,
-        )
-
-        log_msg = (f"{asin}: JP¥{jp_price:,} → AU${final_price:.2f} "
-                   f"(粗利率{result.profit_rate:.1f}%, 競合{offer_info['seller_count']}人)")
+        jp_price, _ = jp_prices.get(asin, (None, False))
+        log_msg = (f"{asin}: AU${final_price:.2f}"
+                   + (f" (JP¥{jp_price:,})" if jp_price else ""))
 
         if dry_run:
             logger.info("[catalog_discover][DRY-RUN] 出品予定 %s", log_msg)
             listed_details.append({
-                "asin": asin, "jp_price": jp_price,
-                "au_price": final_price, "profit_rate": result.profit_rate,
+                "asin": asin, "jp_price": jp_price or 0,
+                "au_price": final_price, "profit_rate": 0,
                 "seller_count": offer_info["seller_count"],
             })
             continue
@@ -1024,8 +1004,8 @@ def discover_and_list(
                                  jp_price=jp_price, au_price=final_price,
                                  title=title, weight_kg=weight_kg)
                 listed_details.append({
-                    "asin": asin, "jp_price": jp_price, "sku": msg,
-                    "au_price": final_price, "profit_rate": result.profit_rate,
+                    "asin": asin, "jp_price": jp_price or 0, "sku": msg,
+                    "au_price": final_price, "profit_rate": 0,
                     "seller_count": offer_info["seller_count"],
                 })
             else:
