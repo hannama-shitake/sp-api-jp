@@ -941,10 +941,9 @@ def discover_and_list(
 
         comp_price = offer_info["min_price"]
         if comp_price is None or comp_price < min_line:
-            skipped_unprofitable += 1
-            continue
-
-        final_price = comp_price
+            final_price = min_line  # 競合価格不明/安値 → min_lineで出品
+        else:
+            final_price = comp_price
         result = calc_profit(
             asin=asin, title="",
             jp_price_jpy=jp_price, au_price_aud=final_price,
