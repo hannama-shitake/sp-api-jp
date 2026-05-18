@@ -23,6 +23,7 @@
 """
 import csv
 import gzip
+from bs4 import BeautifulSoup
 import io
 import os
 import re
@@ -328,20 +329,19 @@ def scrape_seller_asins(
                     _random_scroll(page)
                     _human_delay(0.8, 2.0)
 
-                    # ── ASIN + AU価格 抽出 ──
+                    # ── ASIN + AU価格 抽出（BeautifulSoup）──
                     content = page.content()
+                    soup = BeautifulSoup(content, "html.parser")
                     page_new = 0
-                    items_el = page.query_selector_all('[data-asin][data-component-type="s-search-result"]')
-                    for item_el in items_el:
-                        asin = item_el.get_attribute("data-asin") or ""
+                    for item_el in soup.find_all(attrs={"data-asin": True}):
+                        asin = item_el.get("data-asin", "")
                         if not asin or len(asin) != 10 or asin in seen:
                             continue
-                        # AU価格を取得（.a-offscreen が "AU$XX.XX" の形式）
                         price_aud = None
                         try:
-                            price_el = item_el.query_selector(".a-price .a-offscreen")
+                            price_el = item_el.find("span", class_="a-offscreen")
                             if price_el:
-                                price_text = price_el.inner_text().replace("AU$", "").replace(",", "").strip()
+                                price_text = price_el.get_text().replace("AU$", "").replace(",", "").strip()
                                 price_aud = float(price_text)
                         except Exception:
                             pass
@@ -350,15 +350,6 @@ def scrape_seller_asins(
                         scrape_prices[asin] = price_aud
                         page_new += 1
                         seller_new += 1
-                    # フォールバック: query_selector_allが空の場合はregexでASINのみ取得
-                    if page_new == 0:
-                        raw_asins = re.findall(r'data-asin="([A-Z0-9]{10})"', content)
-                        for asin in dict.fromkeys(raw_asins):
-                            if asin and asin not in seen:
-                                seen.add(asin)
-                                all_asins.append(asin)
-                                page_new += 1
-                                seller_new += 1
 
                     logger.info("[catalog_discover] seller=%s page=%d: %d件新規（累計%d件）",
                                 seller_id, page_num, page_new, len(all_asins))
