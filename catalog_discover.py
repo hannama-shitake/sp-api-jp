@@ -868,13 +868,10 @@ def discover_and_list(
                 len(new_asins), len(new_asins) / 20 * JP_INTERVAL / 60)
     jp_prices = get_jp_prices_bulk(new_asins)
 
-    asins_with_stock = [
-        a for a in new_asins
-        if jp_prices.get(a, (None, False))[1]
-    ]
-    skipped_no_stock = len(new_asins) - len(asins_with_stock)
-    logger.info("[catalog_discover] JP在庫あり: %d件 / なし: %d件",
-                len(asins_with_stock), skipped_no_stock)
+    # JP在庫チェックをスキップ（ターゲットセラーが出品中＝仕入れ可能とみなす）
+    asins_with_stock = new_asins
+    skipped_no_stock = 0
+    logger.info("[catalog_discover] JP在庫チェックスキップ: %d件全件対象", len(asins_with_stock))
 
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
