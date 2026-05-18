@@ -278,7 +278,7 @@ def scrape_seller_asins(
             page.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                if route.request.resource_type in ("image", "media", "font", "stylesheet", "script")
                 else route.continue_(),
             )
 
@@ -890,18 +890,25 @@ def discover_and_list(
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
-    # ── Step 4 & 5: スクレイピング価格を使用（API確認を全廃）──
-    # スクレイピングでAU価格取得済み・JP価格確認もスキップ
-    # ターゲットセラーが出品中＝仕入れ可能・利益確認済みとみなす
-    au_candidates = [a for a in asins_with_stock if scrape_prices.get(a)]
-    skipped_no_au = len(asins_with_stock) - len(au_candidates)
-    logger.info("[catalog_discover] 出品候補: %d件 (スクレイピング価格なし: %d件)",
-                len(au_candidates), skipped_no_au)
+    # ── Step 4 & 5: スクレイピング価格 or JP価格でフォールバック ──
+    au_candidates = list(asins_with_stock)
+    skipped_no_au = 0
+    logger.info("[catalog_discover] 出品候補: %d件", len(au_candidates))
 
     if not au_candidates:
         return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
-    seller_counts = {a: {"seller_count": 1, "min_price": scrape_prices.get(a)} for a in au_candidates}
+    # スクレイピング価格があればそれを使用、なければmin_lineで計算
+    def _get_final_price(asin):
+        p = scrape_prices.get(asin)
+        if p and p > 0:
+            return p
+        jp_p, _ = jp_prices.get(asin, (None, False))
+        if jp_p:
+            return calc_optimal_au_price(jp_p, exchange_rate=exchange_rate)
+        return None
+
+    seller_counts = {a: {"seller_count": 1, "min_price": _get_final_price(a)} for a in au_candidates}
 
     # ── Step 6 & 7: 利益確認 → 出品 ──────────────────────────────
     listings_api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
