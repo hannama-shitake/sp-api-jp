@@ -277,7 +277,7 @@ def scrape_seller_asins(
             page.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font", "stylesheet", "script")
+                if route.request.resource_type in ("image", "media", "font", "stylesheet")
                 else route.continue_(),
             )
 
