@@ -275,11 +275,11 @@ def scrape_seller_asins(
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
             )
             page = context.new_page()
-            # 画像・フォント・メディアのみブロック（JS有効=価格取得に必要）
+            # 画像・JS・CSS・フォント・メディアをブロックして高速化（ASINはHTMLに含まれる）
             page.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font")
+                if route.request.resource_type in ("image", "media", "font", "stylesheet", "script")
                 else route.continue_(),
             )
 
@@ -298,13 +298,8 @@ def scrape_seller_asins(
                     f"&page={page_num}{sort_param}"
                 )
                 try:
-                    page.goto(page_url, wait_until="domcontentloaded", timeout=45_000)
-                    # JS有効のため価格要素がレンダリングされるまで少し待つ
-                    try:
-                        page.wait_for_selector(".a-offscreen", timeout=8_000)
-                    except Exception:
-                        pass  # 価格要素なくても続行
-                    _human_delay(2.5, 5.0)
+                    page.goto(page_url, wait_until="domcontentloaded", timeout=30_000)
+                    _human_delay(2.0, 4.5)
 
                     # ── CAPTCHA / ブロック検出 ──
                     url_now = page.url.lower()
@@ -914,7 +909,7 @@ def discover_and_list(
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
-    # ── Step 4 & 5: スクレイピング価格 or JP価格でフォールバック ──
+    # ── Step 4 & 5: AU価格取得（スクレイプ → API → JP min_line）──
     au_candidates = list(asins_with_stock)
     skipped_no_au = 0
     logger.info("[catalog_discover] 出品候補: %d件", len(au_candidates))
@@ -922,11 +917,22 @@ def discover_and_list(
     if not au_candidates:
         return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
-    # スクレイピング価格があればそれを使用、なければmin_lineで計算
+    # スクレイピングで取れなかった分をAU競合価格APIで補完
+    no_price_asins = [a for a in au_candidates if not scrape_prices.get(a)]
+    api_au_prices: dict = {}
+    if no_price_asins:
+        logger.info("[catalog_discover] AU競合価格API補完: %d件（スクレイプ価格なし）", len(no_price_asins))
+        api_au_prices = get_au_competitor_prices_bulk(no_price_asins)
+        logger.info("[catalog_discover] AU競合価格API取得: %d件", len(api_au_prices))
+
+    # 価格フォールバック: スクレイプ価格 → AU API価格 → JP min_line
     def _get_final_price(asin):
         p = scrape_prices.get(asin)
         if p and p > 0:
             return p
+        ap = api_au_prices.get(asin)
+        if ap and ap > 0:
+            return ap
         jp_p, _ = jp_prices.get(asin, (None, False))
         if jp_p:
             return calc_optimal_au_price(jp_p, exchange_rate=exchange_rate)
