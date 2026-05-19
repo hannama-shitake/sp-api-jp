@@ -879,7 +879,7 @@ def discover_and_list(
     # ── 既存DBのcandidate（未処理残留分）も追加処理 ──────────────────
     # 価格不足でスキップされ candidate のまま残っているASINをバックフィル
     try:
-        con_bf = sqlite3.connect(DB_PATH)
+        con_bf = sqlite3.connect(config.DB_PATH)
         cur_bf = con_bf.cursor()
         cur_bf.execute(
             "SELECT asin FROM asin_candidates WHERE status='candidate' ORDER BY last_checked DESC LIMIT 500"
