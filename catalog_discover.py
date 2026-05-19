@@ -23,6 +23,7 @@
 """
 import csv
 import gzip
+import sqlite3
 from bs4 import BeautifulSoup
 import io
 import os
@@ -274,11 +275,11 @@ def scrape_seller_asins(
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
             )
             page = context.new_page()
-            # 画像・JS・CSS・フォント・メディアをブロックして帯域節約（data-asinはHTMLに含まれるため不要）
+            # 画像・フォント・メディアのみブロック（JS有効=価格取得に必要）
             page.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font", "stylesheet", "script")
+                if route.request.resource_type in ("image", "media", "font")
                 else route.continue_(),
             )
 
@@ -297,8 +298,13 @@ def scrape_seller_asins(
                     f"&page={page_num}{sort_param}"
                 )
                 try:
-                    page.goto(page_url, wait_until="domcontentloaded", timeout=30_000)
-                    _human_delay(2.0, 4.5)
+                    page.goto(page_url, wait_until="domcontentloaded", timeout=45_000)
+                    # JS有効のため価格要素がレンダリングされるまで少し待つ
+                    try:
+                        page.wait_for_selector(".a-offscreen", timeout=8_000)
+                    except Exception:
+                        pass  # 価格要素なくても続行
+                    _human_delay(2.5, 5.0)
 
                     # ── CAPTCHA / ブロック検出 ──
                     url_now = page.url.lower()
@@ -874,6 +880,24 @@ def discover_and_list(
     if before != len(new_asins):
         logger.info("[catalog_discover] recheck済みASIN除外: %d件 → %d件",
                     before, len(new_asins))
+
+    # ── 既存DBのcandidate（未処理残留分）も追加処理 ──────────────────
+    # 価格不足でスキップされ candidate のまま残っているASINをバックフィル
+    try:
+        con_bf = sqlite3.connect(DB_PATH)
+        cur_bf = con_bf.cursor()
+        cur_bf.execute(
+            "SELECT asin FROM asin_candidates WHERE status='candidate' ORDER BY last_checked DESC LIMIT 500"
+        )
+        backfill = [r[0] for r in cur_bf.fetchall()]
+        con_bf.close()
+        new_set = set(new_asins)
+        extra = [a for a in backfill if a not in new_set and a not in existing_asins]
+        if extra:
+            logger.info("[catalog_discover] 既存candidate backfill: %d件追加", len(extra))
+            new_asins = new_asins + extra
+    except Exception as e:
+        logger.warning("[catalog_discover] backfill取得失敗: %s", e)
 
     logger.info("[catalog_discover] 新規ASIN候補: %d件", len(new_asins))
 
