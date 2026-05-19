@@ -979,7 +979,6 @@ def discover_and_list(
             )
             skipped_unprofitable += 1
             continue
-        final_price = comp_price
 
         # ── 認証チェック（ListingsRestrictions API）────────────────────
         # ゲートカテゴリ・要認証ブランドを事前スクリーニング（PUT失敗を未然に防ぐ）

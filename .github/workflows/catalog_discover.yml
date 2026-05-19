@@ -18,11 +18,11 @@ on:
       min_sellers:
         description: '競合セラー最小数'
         required: false
-        default: '2'
+        default: '0'
       max_pages:
         description: 'セラーあたり最大スクレイピングページ数'
         required: false
-        default: '5'
+        default: '20'
   schedule:
     - cron: '0 16 * * *'  # 毎日 01:00 JST
 
