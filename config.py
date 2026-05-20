@@ -40,7 +40,7 @@ DEFAULT_WEIGHT_KG = float(os.getenv("DEFAULT_WEIGHT_KG", "1.0"))  # 重量不明
 MAX_LISTING_WEIGHT_KG = float(os.getenv("MAX_LISTING_WEIGHT_KG", "1.0"))  # 出品可能な最大重量(kg) - 1kg超は国際送料が高すぎるため出品しない
 
 # AU 出品価格の上乗せ係数（粗利確保のためのバッファ）
-PRICE_MARKUP_MULTIPLIER = float(os.getenv("PRICE_MARKUP_MULTIPLIER", "1.0"))
+PRICE_MARKUP_MULTIPLIER = float(os.getenv("PRICE_MARKUP_MULTIPLIER", "1.3"))
 
 # ── eBay 認証 ────────────────────────────────────────────────
 EBAY_APP_ID = os.getenv("EBAY_APP_ID", "")        # Client ID

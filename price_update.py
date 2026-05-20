@@ -300,17 +300,10 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
 
         jp_price, in_stock = jp_data
 
-        # JP在庫切れ → 削除 + DB候補戻し
+        # JP在庫切れ → 出品維持（削除しない。競合在庫切れ待ち戦略と同じ）
         if not in_stock:
-            try:
-                _delete_and_demote(api, seller_id, sku, asin, "JP在庫切れ")
-                deleted_no_stock += 1
-                logger.info("[price_update] %s: JP在庫切れ → 削除・候補DB戻し", asin)
-            except Exception as e:
-                logger.warning("[price_update] %s: 削除失敗 - %s", asin, e)
-                failed += 1
-            time.sleep(_AU_INTERVAL)
-            continue
+            logger.info("[price_update] %s: JP在庫切れ → 出品維持（削除しない）", asin)
+            deleted_no_stock += 1  # カウントのみ
 
         # JP在庫あり・競合価格なし（独占出品）→ 現在価格維持
         if not jp_price:
