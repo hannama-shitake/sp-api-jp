@@ -177,40 +177,34 @@ def get_jp_prices_bulk(asins: list) -> dict:
 # ─────────────────────────────────────────────
 
 def get_au_competitor_prices_bulk(asins: list) -> dict:
-    """20件バッチで AU 競合価格 {asin: price_aud} を返す（自分以外の最安値）"""
+    """FBMセラーのみの最安値 {asin: price_aud} を返す（FBA除外・自分除外）"""
     api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+    my_seller_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
     result = {}
-    batch_size = 20
     total = len(asins)
 
-    for i in range(0, total, batch_size):
-        batch = asins[i : i + batch_size]
-        if i % 200 == 0:
-            logger.info("[price_update] AU競合価格取得中: %d/%d", i, total)
+    for i, asin in enumerate(asins):
+        if i % 50 == 0:
+            logger.info("[price_update] AU FBM価格取得中: %d/%d", i, total)
         try:
-            resp = api.get_competitive_pricing_for_asins(batch)
-            items = resp.payload if isinstance(resp.payload, list) else []
-            for item in items:
-                asin = item.get("ASIN", "")
-                comp_prices = (
-                    item.get("Product", {})
-                    .get("CompetitivePricing", {})
-                    .get("CompetitivePrices", [])
-                )
-                for cp in comp_prices:
-                    if cp.get("condition") == "New":
-                        # belongsToRequester=True は自分の出品なのでスキップ
-                        if cp.get("belongsToRequester"):
-                            continue
-                        amount = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
-                        if amount:
-                            result[asin] = float(amount)
-                        break
+            resp = api.get_item_offers(asin, ItemCondition="New")
+            offers = (resp.payload or {}).get("Offers", [])
+            fbm_prices = []
+            for offer in offers:
+                if offer.get("IsFulfilledByAmazon"):
+                    continue  # FBA除外
+                if offer.get("SellerId") == my_seller_id:
+                    continue  # 自分除外
+                amount = offer.get("ListingPrice", {}).get("Amount")
+                if amount:
+                    fbm_prices.append(float(amount))
+            if fbm_prices:
+                result[asin] = min(fbm_prices)
         except SellingApiException as e:
-            logger.warning("[price_update] AU価格バッチエラー (%s...): %s", batch[0], e)
+            logger.warning("[price_update] AU FBM価格エラー %s: %s", asin, e)
         time.sleep(_AU_PRICE_INTERVAL)
 
-    logger.info("[price_update] AU競合価格取得完了: %d件中%d件取得", total, len(result))
+    logger.info("[price_update] AU FBM価格取得完了: %d件中%d件取得", total, len(result))
     return result
 
 

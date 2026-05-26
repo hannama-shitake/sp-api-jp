@@ -909,36 +909,17 @@ def discover_and_list(
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
-    # ── Step 4 & 5: AU価格取得（スクレイプ → API → JP min_line）──
-    au_candidates = list(asins_with_stock)
-    skipped_no_au = 0
-    logger.info("[catalog_discover] 出品候補: %d件", len(au_candidates))
+    # ── Step 4 & 5: スクレイプ価格のある商品だけ出品候補にする ──
+    # FBM競合セラーのページから取得した価格のみ使用。フォールバックなし。
+    au_candidates = [a for a in asins_with_stock if scrape_prices.get(a)]
+    skipped_no_au = len(asins_with_stock) - len(au_candidates)
+    logger.info("[catalog_discover] 出品候補: %d件（スクレイプ価格なし %d件スキップ）",
+                len(au_candidates), skipped_no_au)
 
     if not au_candidates:
         return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
-    # スクレイピングで取れなかった分をAU競合価格APIで補完
-    no_price_asins = [a for a in au_candidates if not scrape_prices.get(a)]
-    api_au_prices: dict = {}
-    if no_price_asins:
-        logger.info("[catalog_discover] AU競合価格API補完: %d件（スクレイプ価格なし）", len(no_price_asins))
-        api_au_prices = get_au_competitor_prices_bulk(no_price_asins)
-        logger.info("[catalog_discover] AU競合価格API取得: %d件", len(api_au_prices))
-
-    # 価格フォールバック: スクレイプ価格 → AU API価格 → JP min_line
-    def _get_final_price(asin):
-        p = scrape_prices.get(asin)
-        if p and p > 0:
-            return p
-        ap = api_au_prices.get(asin)
-        if ap and ap > 0:
-            return ap
-        jp_p, _ = jp_prices.get(asin, (None, False))
-        if jp_p:
-            return calc_optimal_au_price(jp_p, exchange_rate=exchange_rate)
-        return None
-
-    seller_counts = {a: {"seller_count": 1, "min_price": _get_final_price(a)} for a in au_candidates}
+    seller_counts = {a: {"seller_count": 1, "min_price": scrape_prices[a]} for a in au_candidates}
 
     # ── Step 6 & 7: 利益確認 → 出品 ──────────────────────────────
     listings_api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
