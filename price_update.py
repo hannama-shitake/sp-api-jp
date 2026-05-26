@@ -305,9 +305,22 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
             logger.info("[price_update] %s: JP在庫切れ → 出品維持（削除しない）", asin)
             deleted_no_stock += 1  # カウントのみ
 
-        # JP在庫あり・競合価格なし（独占出品）→ 現在価格維持
+        # JP価格なし → 最低出品価格フロアを下回っていれば引き上げ・それ以外は維持
         if not jp_price:
-            logger.debug("[price_update] %s: JP独占出品（競合価格なし）→ 現在価格維持", asin)
+            current_price = float(listing.get("current_price_aud") or 0)
+            if current_price < config.MIN_AU_LISTING_PRICE:
+                final_price = config.MIN_AU_LISTING_PRICE
+                logger.info("[price_update] %s: JP価格なし・現在AU$%.2f < フロアAU$%.2f → 引き上げ",
+                            asin, current_price, config.MIN_AU_LISTING_PRICE)
+                try:
+                    _patch_price_and_quantity(api, seller_id, sku, final_price)
+                    updated += 1
+                except Exception as e:
+                    logger.warning("[price_update] %s: フロア価格更新失敗 - %s", asin, e)
+                    failed += 1
+                time.sleep(_AU_INTERVAL)
+            else:
+                logger.debug("[price_update] %s: JP価格なし・現在AU$%.2f → 維持", asin, current_price)
             continue
 
         # 最低利益ライン（赤字にならない最安値）

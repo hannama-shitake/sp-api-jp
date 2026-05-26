@@ -956,11 +956,15 @@ def discover_and_list(
 
         offer_info = seller_counts.get(asin, {"seller_count": 0, "min_price": None})
 
-        # スクレイピングで取得したAU価格をそのまま使用
-        final_price = offer_info["min_price"]
-        if not final_price:
+        # 価格決定: スクレイプ/API価格 → 最低フロア(MIN_AU_LISTING_PRICE)以上を保証
+        raw_price = offer_info["min_price"]
+        if not raw_price:
             skipped_unprofitable += 1
             continue
+        final_price = max(raw_price, config.MIN_AU_LISTING_PRICE)
+        if final_price != raw_price:
+            logger.info("[catalog_discover] %s: AU$%.2f < フロアAU$%.2f → フロア価格で出品",
+                        asin, raw_price, config.MIN_AU_LISTING_PRICE)
 
         jp_price, _ = jp_prices.get(asin, (None, False))
         log_msg = (f"{asin}: AU${final_price:.2f}"

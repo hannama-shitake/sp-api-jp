@@ -42,6 +42,10 @@ MAX_LISTING_WEIGHT_KG = float(os.getenv("MAX_LISTING_WEIGHT_KG", "1.0"))  # 出�
 # AU 出品価格の上乗せ係数（粗利確保のためのバッファ）
 PRICE_MARKUP_MULTIPLIER = float(os.getenv("PRICE_MARKUP_MULTIPLIER", "1.3"))
 
+# AU 最低出品価格フロア（DHL送料¥3,800 ÷ 為替 ÷ 手数料0.85 の最低ライン）
+# JP価格不明でもこれを下回る価格では出品・維持しない
+MIN_AU_LISTING_PRICE = float(os.getenv("MIN_AU_LISTING_PRICE", "45.0"))
+
 # ── eBay 認証 ────────────────────────────────────────────────
 EBAY_APP_ID = os.getenv("EBAY_APP_ID", "")        # Client ID
 EBAY_DEV_ID = os.getenv("EBAY_DEV_ID", "")        # Dev ID
