@@ -63,6 +63,26 @@
     "leatherman", "レザーマン"
   ],
 
+  "amazon_direct_brands": [
+    "audio-technica", "audio technica", "オーディオテクニカ",
+    "sony", "ソニー",
+    "panasonic", "パナソニック",
+    "pioneer", "パイオニア",
+    "denon", "デノン",
+    "bose",
+    "sennheiser", "ゼンハイザー",
+    "shure", "シュア",
+    "yamaha", "ヤマハ",
+    "nikon", "ニコン",
+    "canon", "キヤノン", "キャノン",
+    "fujifilm", "富士フイルム",
+    "olympus", "オリンパス",
+    "logitech", "logicool", "ロジクール",
+    "apple", "アップル",
+    "microsoft", "マイクロソフト",
+    "anker", "アンカー"
+  ],
+
   "music_copyright": [
     "vinyl", "vinyl record", "lp record", "ep record", "12inch", "7inch",
     "vinyル", "レコード", "ビニール盤", "アナログ盤",
