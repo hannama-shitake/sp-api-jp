@@ -529,12 +529,15 @@ def get_au_fbm_prices(asins: list) -> dict:
     """
     FBMセラーの最安値 {asin: price_aud} を返す。
     FBAセラー・自分は除外。FBMセラーが存在しない商品はキーを含まない。
-    price_update.py の get_au_competitor_prices_bulk と同じロジック。
+
+    ★ FBAフィルタ: FBA最安値 < MIN_AU_LISTING_PRICE の商品は出品しない。
+    FBAが安すぎる商品（例: FBA$15.99 vs 我々$45）は注文されると赤字になるため除外。
     """
     api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
     result = {}
     my_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
     total = len(asins)
+    skipped_fba_cheap = 0
 
     for i, asin in enumerate(asins):
         if i % 50 == 0:
@@ -545,14 +548,28 @@ def get_au_fbm_prices(asins: list) -> dict:
                 payload = resp.payload if hasattr(resp, "payload") else {}
                 offers = payload.get("Offers", [])
                 fbm_prices = []
+                fba_prices = []
                 for offer in offers:
+                    amount = offer.get("ListingPrice", {}).get("Amount")
+                    if not amount:
+                        continue
+                    price = float(amount)
                     if offer.get("IsFulfilledByAmazon"):
-                        continue  # FBA除外
+                        fba_prices.append(price)  # FBA価格を記録
+                        continue
                     if offer.get("SellerId", "") == my_id:
                         continue  # 自分除外
-                    amount = offer.get("ListingPrice", {}).get("Amount")
-                    if amount:
-                        fbm_prices.append(float(amount))
+                    fbm_prices.append(price)
+
+                # ★ FBAが安すぎる場合はスキップ（注文されたら赤字になる）
+                if fba_prices and min(fba_prices) < config.MIN_AU_LISTING_PRICE:
+                    logger.info(
+                        "[catalog_discover] %s: FBA最安値AU$%.2f < フロアAU$%.2f → FBA安値スキップ",
+                        asin, min(fba_prices), config.MIN_AU_LISTING_PRICE,
+                    )
+                    skipped_fba_cheap += 1
+                    break
+
                 if fbm_prices:
                     result[asin] = min(fbm_prices)
                 break
@@ -571,8 +588,8 @@ def get_au_fbm_prices(asins: list) -> dict:
         time.sleep(AU_PRICE_INTERVAL)
 
     logger.info(
-        "[catalog_discover] AU FBM価格取得完了: %d件中 FBM価格あり %d件",
-        total, len(result),
+        "[catalog_discover] AU FBM価格取得完了: %d件中 FBM価格あり %d件 / FBA安値スキップ %d件",
+        total, len(result), skipped_fba_cheap,
     )
     return result
 
