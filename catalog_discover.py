@@ -1025,6 +1025,7 @@ def discover_and_list(
             continue
 
         # NGワード＋重量チェック（Catalog APIでタイトル・重量を同時取得）
+        # まずJPカタログで取得。JPにないASIN（AU専用）はAUカタログでフォールバック
         try:
             cat_api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
             cat_resp = cat_api.get_catalog_item(
@@ -1039,7 +1040,24 @@ def discover_and_list(
             title = ""
             weight_kg = None
 
-        # NGワードチェック
+        # JPでタイトルが取れなかった場合 → AUカタログでフォールバック
+        # AU専用ASINはJPに存在しないためタイトルが空になる → NGチェックが効かないバグを防ぐ
+        if not title:
+            try:
+                cat_au = CatalogItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+                cat_au_resp = cat_au.get_catalog_item(
+                    asin,
+                    marketplaceIds=[MARKETPLACE_AU],
+                    includedData=["summaries"],
+                )
+                au_payload = cat_au_resp.payload or {}
+                title = (au_payload.get("summaries") or [{}])[0].get("itemName", "") or ""
+                if title:
+                    logger.debug("[catalog_discover] %s: AUカタログからタイトル取得: %s", asin, title[:60])
+            except Exception:
+                pass
+
+        # NGワードチェック（タイトルが空でもスキップしない）
         if title:
             is_ng, ng_word = _check_ng_words(title, asin)
             if is_ng:
@@ -1048,6 +1066,11 @@ def discover_and_list(
                                  skip_reason=f"ng:{ng_word}")
                 skipped_unprofitable += 1
                 continue
+        else:
+            # タイトルがJP・AU両方で取れなかった → 安全のためスキップ
+            logger.info("[catalog_discover] %s: タイトル取得不可 → 安全のためスキップ", asin)
+            skipped_unprofitable += 1
+            continue
 
         # 重量チェック（MAX_LISTING_WEIGHT_KG 超 → 無条件スキップ）
         # 1kg超は国際送料が高すぎるため出品しない（利益が出ていても送料リスクが大きい）
