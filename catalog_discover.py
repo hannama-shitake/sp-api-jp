@@ -522,6 +522,62 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
 
 
 # ─────────────────────────────────────────────
+# 4b. AU FBM最安値取得（get_item_offers, FBAと自分を除外）
+# ─────────────────────────────────────────────
+
+def get_au_fbm_prices(asins: list) -> dict:
+    """
+    FBMセラーの最安値 {asin: price_aud} を返す。
+    FBAセラー・自分は除外。FBMセラーが存在しない商品はキーを含まない。
+    price_update.py の get_au_competitor_prices_bulk と同じロジック。
+    """
+    api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+    result = {}
+    my_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
+    total = len(asins)
+
+    for i, asin in enumerate(asins):
+        if i % 50 == 0:
+            logger.info("[catalog_discover] AU FBM価格確認中: %d/%d", i, total)
+        for attempt in range(3):
+            try:
+                resp = api.get_item_offers(asin, item_condition="New")
+                payload = resp.payload if hasattr(resp, "payload") else {}
+                offers = payload.get("Offers", [])
+                fbm_prices = []
+                for offer in offers:
+                    if offer.get("IsFulfilledByAmazon"):
+                        continue  # FBA除外
+                    if offer.get("SellerId", "") == my_id:
+                        continue  # 自分除外
+                    amount = offer.get("ListingPrice", {}).get("Amount")
+                    if amount:
+                        fbm_prices.append(float(amount))
+                if fbm_prices:
+                    result[asin] = min(fbm_prices)
+                break
+            except SellingApiException as e:
+                logger.warning("[catalog_discover] AU FBM価格エラー %s: %s", asin, e)
+                break
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning(
+                        "[catalog_discover] AU FBM価格タイムアウト %s (試行%d/3) → リトライ",
+                        asin, attempt + 1,
+                    )
+                    time.sleep(5)
+                else:
+                    logger.warning("[catalog_discover] AU FBM価格失敗 %s: %s", asin, e)
+        time.sleep(AU_PRICE_INTERVAL)
+
+    logger.info(
+        "[catalog_discover] AU FBM価格取得完了: %d件中 FBM価格あり %d件",
+        total, len(result),
+    )
+    return result
+
+
+# ─────────────────────────────────────────────
 # 5. AU セラー数確認（get_item_offers）
 # ─────────────────────────────────────────────
 
@@ -909,17 +965,25 @@ def discover_and_list(
     if not asins_with_stock:
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
-    # ── Step 4 & 5: スクレイプ価格のある商品だけ出品候補にする ──
-    # FBM競合セラーのページから取得した価格のみ使用。フォールバックなし。
-    au_candidates = [a for a in asins_with_stock if scrape_prices.get(a)]
+    # ── Step 4 & 5: AU FBM価格を取得して出品候補を絞る ──
+    # get_item_offers でFBMセラーの最安値を取得（FBA除外・自分除外）
+    # ★ スクレイピングではJSブロックのため価格が取れない → APIで代替
+    logger.info(
+        "[catalog_discover] AU FBM価格確認: %d件 (約%.0f分)",
+        len(asins_with_stock), len(asins_with_stock) * AU_PRICE_INTERVAL / 60,
+    )
+    fbm_prices = get_au_fbm_prices(asins_with_stock)
+    au_candidates = [a for a in asins_with_stock if fbm_prices.get(a)]
     skipped_no_au = len(asins_with_stock) - len(au_candidates)
-    logger.info("[catalog_discover] 出品候補: %d件（スクレイプ価格なし %d件スキップ）",
-                len(au_candidates), skipped_no_au)
+    logger.info(
+        "[catalog_discover] 出品候補: %d件（FBM価格なし %d件スキップ）",
+        len(au_candidates), skipped_no_au,
+    )
 
     if not au_candidates:
         return [], skipped_no_stock, skipped_no_au, 0, 0, 0, 0
 
-    seller_counts = {a: {"seller_count": 1, "min_price": scrape_prices[a]} for a in au_candidates}
+    seller_counts = {a: {"seller_count": 1, "min_price": fbm_prices[a]} for a in au_candidates}
 
     # ── Step 6 & 7: 利益確認 → 出品 ──────────────────────────────
     listings_api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
