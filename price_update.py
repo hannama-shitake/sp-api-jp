@@ -187,7 +187,7 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
         if i % 50 == 0:
             logger.info("[price_update] AU FBM価格取得中: %d/%d", i, total)
         try:
-            resp = api.get_item_offers(asin, ItemCondition="New")
+            resp = api.get_item_offers(asin, item_condition="New")
             offers = (resp.payload or {}).get("Offers", [])
             fbm_prices = []
             for offer in offers:
