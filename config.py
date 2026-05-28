@@ -112,6 +112,16 @@ PROXY_LIST = [("p.webshare.io", "80")]
 # ── 競合セラー URL リスト（catalog_discover で使用）────────────────
 # 優先度: seller_urls.txt（リポジトリ管理）> 環境変数 SELLER_URLS
 # seller_urls.txt は find_au_sellers.py --update-file で毎週自動更新される
+# ── ターゲットセラー ID（3セラー照合用）─────────────────────────────
+# catalog_discover / price_update で「この3セラーが今も出品しているか」を確認するために使用。
+# 3セラーが誰もいない ASIN = 真贋リスク大 or 需要ゼロ → 出品・維持しない。
+TARGET_SELLER_IDS: set = {
+    "A11Q13J4AP3PRH",
+    "A3I4NYJKP3GMMP",
+    "A3SFQLVXY8GUH2",
+}
+
+
 def _load_seller_urls() -> list:
     _txt = os.path.join(os.path.dirname(__file__), "seller_urls.txt")
     if os.path.exists(_txt):

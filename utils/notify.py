@@ -98,24 +98,28 @@ def notify_price_update_summary(
     paused_no_stock: int = 0,
     paused_too_cheap: int = 0,
     paused_fair: int = 0,
+    deleted_no_target: int = 0,
 ):
     """Price Update の実行サマリー通知（変化があった時のみ）"""
-    if updated == 0 and paused == 0 and failed == 0 and reactivated == 0:
+    if updated == 0 and paused == 0 and failed == 0 and reactivated == 0 and deleted_no_target == 0:
         return  # 何も変化なければ通知しない
 
     featured_offer_est = sole_seller + buybox_win
     subject = f"[SP-API Price] 価格更新{updated}件 / 再出品{reactivated}件 / JP在庫なし削除{paused_no_stock}件"
+    if deleted_no_target > 0:
+        subject += f" / 3セラー撤退削除{deleted_no_target}件"
     if failed > 0:
         subject += f" / エラー{failed}件"
 
     # 内訳
     pause_detail = ""
-    if paused_no_stock > 0 or paused_too_cheap > 0 or paused_fair > 0:
+    if paused_no_stock > 0 or paused_too_cheap > 0 or paused_fair > 0 or deleted_no_target > 0:
         pause_detail = (
             f"\n--- 内訳 ---\n"
             f"  JP在庫なし削除:            {paused_no_stock}件\n"
             f"  競合安値のためmin_price維持: {paused_too_cheap}件  （削除しない・競合在庫切れ待ち）\n"
             f"  フェアプライシング削除:    {paused_fair}件\n"
+            f"  3セラー撤退削除:           {deleted_no_target}件  （真贋/需要リスク回避）\n"
         )
 
     fo_lines = ""

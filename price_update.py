@@ -176,11 +176,16 @@ def get_jp_prices_bulk(asins: list) -> dict:
 # 3. AU 競合価格一括取得
 # ─────────────────────────────────────────────
 
-def get_au_competitor_prices_bulk(asins: list) -> dict:
-    """FBMセラーのみの最安値 {asin: price_aud} を返す（FBA除外・自分除外）"""
+def get_au_competitor_prices_bulk(asins: list) -> tuple:
+    """FBMセラーのみの最安値と3セラー不在ASINを返す。
+    Returns: (prices_dict {asin: price_aud}, no_target_asins set)
+    - prices_dict: FBA除外・自分除外のFBM最安値
+    - no_target_asins: 3セラー（TARGET_SELLER_IDS）が誰もいないASIN → 削除対象
+    """
     api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
     my_seller_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
     result = {}
+    no_target_asins = set()
     total = len(asins)
 
     for i, asin in enumerate(asins):
@@ -189,6 +194,16 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
         try:
             resp = api.get_item_offers(asin, item_condition="New")
             offers = (resp.payload or {}).get("Offers", [])
+
+            # 3セラー存在チェック（FBA・FBM問わず）
+            # 全員いなくなった = 彼らが撤退 or 真贋弾かれた → 我々も撤退
+            target_present = any(
+                o.get("SellerId", "") in config.TARGET_SELLER_IDS
+                for o in offers
+            )
+            if not target_present:
+                no_target_asins.add(asin)
+
             fbm_prices = []
             for offer in offers:
                 if offer.get("IsFulfilledByAmazon"):
@@ -204,8 +219,11 @@ def get_au_competitor_prices_bulk(asins: list) -> dict:
             logger.warning("[price_update] AU FBM価格エラー %s: %s", asin, e)
         time.sleep(_AU_PRICE_INTERVAL)
 
-    logger.info("[price_update] AU FBM価格取得完了: %d件中%d件取得", total, len(result))
-    return result
+    logger.info(
+        "[price_update] AU FBM価格取得完了: %d件中%d件取得 / 3セラー不在: %d件",
+        total, len(result), len(no_target_asins),
+    )
+    return result, no_target_asins
 
 
 # ─────────────────────────────────────────────
@@ -497,11 +515,29 @@ def main():
     jp_prices = get_jp_prices_bulk(asins)
 
     logger.info("[price_update] AU競合価格確認: %d件（約%.0f分）", len(asins), len(asins) / 20 * _AU_PRICE_INTERVAL / 60)
-    au_comp_prices = get_au_competitor_prices_bulk(asins)
+    au_comp_prices, no_target_asins = get_au_competitor_prices_bulk(asins)
 
-    # 3. AU価格更新 / 停止 / 再出品
+    # 3. 3セラー全員不在のASINを削除（真贋リスク・需要ゼロ対策）
+    deleted_no_target = 0
+    if no_target_asins:
+        listings_api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
+        logger.info("[price_update] 3セラー不在のため削除対象: %d件", len(no_target_asins))
+        for listing in listings:
+            if listing["asin"] in no_target_asins:
+                try:
+                    _delete_and_demote(listings_api, seller_id, listing["sku"], listing["asin"], "no_target_seller")
+                    deleted_no_target += 1
+                    logger.info("[price_update] %s: 3セラー全員不在 → 削除", listing["asin"])
+                except Exception as e:
+                    logger.warning("[price_update] %s: 3セラー不在削除失敗 - %s", listing["asin"], e)
+        logger.info("[price_update] 3セラー不在削除完了: %d件", deleted_no_target)
+
+    # 3セラー不在ASINは価格更新対象から除外
+    listings_for_update = [l for l in listings if l["asin"] not in no_target_asins]
+
+    # 4. AU価格更新 / 停止 / 再出品
     updated, paused, failed, reactivated, sole_seller, buybox_win, paused_no_stock, paused_too_cheap, paused_fair = update_au_prices(
-        listings, jp_prices, au_comp_prices, exchange_rate, seller_id
+        listings_for_update, jp_prices, au_comp_prices, exchange_rate, seller_id
     )
     notify_price_update_summary(
         updated, paused, failed,
@@ -511,6 +547,7 @@ def main():
         paused_no_stock=paused_no_stock,
         paused_too_cheap=paused_too_cheap,
         paused_fair=paused_fair,
+        deleted_no_target=deleted_no_target,
     )
 
 
