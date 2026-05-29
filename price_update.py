@@ -517,27 +517,15 @@ def main():
     logger.info("[price_update] AU競合価格確認: %d件（約%.0f分）", len(asins), len(asins) / 20 * _AU_PRICE_INTERVAL / 60)
     au_comp_prices, no_target_asins = get_au_competitor_prices_bulk(asins)
 
-    # 3. 3セラー全員不在のASINを削除（真贋リスク・需要ゼロ対策）
-    deleted_no_target = 0
+    # 注意: no_target_asins は参考情報のみ（削除しない）
+    # get_item_offers は競合上位オファーしか返さないため、3セラーが実際に出品中でも
+    # レスポンスに含まれないことがある → 誤削除の原因になるため削除処理は行わない
     if no_target_asins:
-        listings_api = ListingsItems(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
-        logger.info("[price_update] 3セラー不在のため削除対象: %d件", len(no_target_asins))
-        for listing in listings:
-            if listing["asin"] in no_target_asins:
-                try:
-                    _delete_and_demote(listings_api, seller_id, listing["sku"], listing["asin"], "no_target_seller")
-                    deleted_no_target += 1
-                    logger.info("[price_update] %s: 3セラー全員不在 → 削除", listing["asin"])
-                except Exception as e:
-                    logger.warning("[price_update] %s: 3セラー不在削除失敗 - %s", listing["asin"], e)
-        logger.info("[price_update] 3セラー不在削除完了: %d件", deleted_no_target)
+        logger.info("[price_update] 3セラーAPI不検出（参考）: %d件 ※削除しない", len(no_target_asins))
 
-    # 3セラー不在ASINは価格更新対象から除外
-    listings_for_update = [l for l in listings if l["asin"] not in no_target_asins]
-
-    # 4. AU価格更新 / 停止 / 再出品
+    # 3. AU価格更新 / 停止 / 再出品
     updated, paused, failed, reactivated, sole_seller, buybox_win, paused_no_stock, paused_too_cheap, paused_fair = update_au_prices(
-        listings_for_update, jp_prices, au_comp_prices, exchange_rate, seller_id
+        listings, jp_prices, au_comp_prices, exchange_rate, seller_id
     )
     notify_price_update_summary(
         updated, paused, failed,
@@ -547,7 +535,6 @@ def main():
         paused_no_stock=paused_no_stock,
         paused_too_cheap=paused_too_cheap,
         paused_fair=paused_fair,
-        deleted_no_target=deleted_no_target,
     )
 
 

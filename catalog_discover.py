@@ -538,7 +538,6 @@ def get_au_fbm_prices(asins: list) -> dict:
     my_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
     total = len(asins)
     skipped_fba_cheap = 0
-    skipped_no_target = 0
 
     for i, asin in enumerate(asins):
         if i % 50 == 0:
@@ -549,19 +548,10 @@ def get_au_fbm_prices(asins: list) -> dict:
                 payload = resp.payload if hasattr(resp, "payload") else {}
                 offers = payload.get("Offers", [])
 
-                # ★ 3セラーのうち誰かが今も出品しているか確認（真贋・需要の担保）
-                # FBA・FBM問わずチェック。誰もいない = 彼らが撤退済み or 真贋弾かれた可能性
-                target_present = any(
-                    offer.get("SellerId", "") in config.TARGET_SELLER_IDS
-                    for offer in offers
-                )
-                if not target_present:
-                    logger.info(
-                        "[catalog_discover] %s: 3セラー全員不在 → スキップ（真贋/需要リスク）", asin
-                    )
-                    skipped_no_target += 1
-                    break
-
+                # 注意: get_item_offersは競合上位オファーしか返さないため
+                # 3セラーが出品中でもレスポンスに含まれないことがある。
+                # 3セラー確認はスクレイピング（ASINの発見元）で担保済みのため
+                # ここでの追加チェックは行わない。
                 fbm_prices = []
                 fba_prices = []
                 for offer in offers:
@@ -603,8 +593,8 @@ def get_au_fbm_prices(asins: list) -> dict:
         time.sleep(AU_PRICE_INTERVAL)
 
     logger.info(
-        "[catalog_discover] AU FBM価格取得完了: %d件中 FBM価格あり %d件 / FBA安値スキップ %d件 / 3セラー不在スキップ %d件",
-        total, len(result), skipped_fba_cheap, skipped_no_target,
+        "[catalog_discover] AU FBM価格取得完了: %d件中 FBM価格あり %d件 / FBA安値スキップ %d件",
+        total, len(result), skipped_fba_cheap,
     )
     return result
 
