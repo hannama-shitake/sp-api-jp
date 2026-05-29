@@ -16,3 +16,5 @@ list_log.txt
 # Google サービスアカウントキー
 *.json
 !package.json
+# Price Analyzer CSV出力（ローカル生成・コミット不要）
+csv_output/**/*.csv
