@@ -109,6 +109,15 @@ PROXY_PASS = os.getenv("PROXY_PASS", "")
 # Webshare Rotating Residential: p.webshare.io:80（サーバー側でIP自動ローテーション）
 PROXY_LIST = [("p.webshare.io", "80")]
 
+# ── Price Analyzer CSV 設定 ──────────────────────────────────────
+# Amazon Price Analyzer（ローカルGUIツール）の出力CSVフォルダ
+# catalog_discover.py はこのフォルダのCSVを優先的にASIN+価格ソースとして使用する
+# GitHub Actions では PRICE_ANALYZER_CSV_DIR 未設定 → Playwrightスクレイピングにフォールバック
+PRICE_ANALYZER_CSV_DIR = os.getenv("PRICE_ANALYZER_CSV_DIR", "csv_output/AU/base")
+
+# CSV有効期限: この時間（時）より古いCSVは無視する（古い価格データで出品しないため）
+PRICE_ANALYZER_CSV_MAX_AGE_HOURS = int(os.getenv("PRICE_ANALYZER_CSV_MAX_AGE_HOURS", "48"))
+
 # ── 競合セラー URL リスト（catalog_discover で使用）────────────────
 # 優先度: seller_urls.txt（リポジトリ管理）> 環境変数 SELLER_URLS
 # seller_urls.txt は find_au_sellers.py --update-file で毎週自動更新される

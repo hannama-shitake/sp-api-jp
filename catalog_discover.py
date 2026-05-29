@@ -108,6 +108,9 @@ _SORT_ORDERS = [
 # ページ1が全部既知でも2,3ページ目に新規があるので 1 で打ち切らない
 MAX_CONSECUTIVE_EMPTY = 3
 
+# AU配送先ポストコード（Sydney）
+AU_DELIVERY_POSTCODE = "2002"
+
 
 def _human_delay(min_sec: float = 1.5, max_sec: float = 4.0) -> None:
     """人間らしいランダム待機"""
@@ -177,6 +180,89 @@ def get_existing_asins() -> set:
     logger.info("[catalog_discover] 既存active ASIN: %d件（inactive は候補DB経由で再チェック）",
                 len(known))
     return known
+
+
+# ─────────────────────────────────────────────
+# 2a. Price Analyzer CSV から ASIN+価格を読み込む
+# ─────────────────────────────────────────────
+
+def load_price_analyzer_csvs() -> tuple:
+    """
+    Amazon Price Analyzer（ローカルGUIツール）の出力CSVを読み込む。
+    CSVはローカルで Price Analyzer を実行することで生成される。
+
+    CSV列: asin, price, title
+    フォルダ: config.PRICE_ANALYZER_CSV_DIR（デフォルト: csv_output/AU/base）
+    有効期限: config.PRICE_ANALYZER_CSV_MAX_AGE_HOURS 時間以内のファイルのみ使用
+
+    Returns:
+        (asins: list, csv_prices: dict {asin: float}, csv_titles: dict {asin: str})
+        CSVがない・古い場合は ([], {}, {}) を返す
+    """
+    import glob
+    from datetime import datetime, timedelta
+
+    csv_dir = config.PRICE_ANALYZER_CSV_DIR
+    if not os.path.isabs(csv_dir):
+        csv_dir = os.path.join(os.path.dirname(__file__), csv_dir)
+
+    pattern = os.path.join(csv_dir, "amazon_prices_*.csv")
+    all_files = sorted(glob.glob(pattern), reverse=True)  # 最新順
+
+    if not all_files:
+        logger.info("[catalog_discover] Price Analyzer CSV なし (%s) → Playwrightスクレイピングにフォールバック", csv_dir)
+        return [], {}, {}
+
+    # max_age_hours 以内のファイルのみ使用（古い価格で出品しないため）
+    max_age = config.PRICE_ANALYZER_CSV_MAX_AGE_HOURS
+    cutoff = datetime.now() - timedelta(hours=max_age)
+    recent_files = [f for f in all_files if datetime.fromtimestamp(os.path.getmtime(f)) >= cutoff]
+
+    if not recent_files:
+        logger.info(
+            "[catalog_discover] Price Analyzer CSV: 全%d件が%d時間超 → スキップ",
+            len(all_files), max_age,
+        )
+        return [], {}, {}
+
+    logger.info(
+        "[catalog_discover] Price Analyzer CSV: %d件使用（最新: %s）",
+        len(recent_files), os.path.basename(recent_files[0]),
+    )
+
+    asins: list = []
+    csv_prices: dict = {}
+    csv_titles: dict = {}
+    seen: set = set()
+
+    for f in recent_files:
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                reader = csv.DictReader(fh)
+                for row in reader:
+                    asin = str(row.get("asin", "") or "").strip()
+                    if not asin or len(asin) != 10 or asin in seen:
+                        continue
+                    try:
+                        price = float(row.get("price", 0) or 0)
+                    except (ValueError, TypeError):
+                        price = 0.0
+                    title = str(row.get("title", "") or "").strip()
+
+                    seen.add(asin)
+                    asins.append(asin)
+                    if price > 0:
+                        csv_prices[asin] = price
+                    if title:
+                        csv_titles[asin] = title
+        except Exception as e:
+            logger.warning("[catalog_discover] CSV読み込みエラー %s: %s", f, e)
+
+    logger.info(
+        "[catalog_discover] Price Analyzer CSV 読み込み完了: ASIN %d件 / 価格あり %d件 / タイトルあり %d件",
+        len(asins), len(csv_prices), len(csv_titles),
+    )
+    return asins, csv_prices, csv_titles
 
 
 # ─────────────────────────────────────────────
@@ -280,6 +366,77 @@ def scrape_seller_asins(
             """)
             return ctx
 
+        def _set_au_delivery_location(page) -> bool:
+            """
+            Amazon AUの配送先をSydney（郵便番号2002）に設定する。
+            正しい配送先を設定しないと価格が表示されない・少なくなる。
+            セラーページ巡回前に1回呼び出す。
+            """
+            try:
+                page.goto("https://www.amazon.com.au", wait_until="domcontentloaded", timeout=20_000)
+                _human_delay(1.5, 2.5)
+
+                # 既に2002に設定されているか確認
+                try:
+                    loc = page.inner_text("#glow-ingress-line2")
+                    if AU_DELIVERY_POSTCODE in loc or "Sydney" in loc:
+                        logger.debug("[catalog_discover] 配送先: 既にSydney(2002)設定済み")
+                        return True
+                except Exception:
+                    pass
+
+                # ダイアログを開く
+                page.evaluate("""
+                    const el = document.querySelector('#nav-global-location-popover-link')
+                             || document.querySelector('#glow-ingress-block');
+                    if (el) el.click();
+                """)
+                time.sleep(1.5)
+
+                # 郵便番号を入力
+                page.evaluate(f"""
+                    const inputs = document.querySelectorAll('input[type="text"]');
+                    for (const inp of inputs) {{
+                        const ph = (inp.placeholder || '').toLowerCase();
+                        if (ph.includes('post') || ph.includes('zip') || ph.includes('code')) {{
+                            inp.value = '{AU_DELIVERY_POSTCODE}';
+                            inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+                            inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                            break;
+                        }}
+                    }}
+                """)
+                time.sleep(0.8)
+
+                # Applyボタンをクリック
+                page.evaluate("""
+                    const buttons = document.querySelectorAll('button');
+                    for (const btn of buttons) {
+                        const t = (btn.textContent || '').toLowerCase().trim();
+                        if (t.includes('apply') || t === 'done' || t.includes('continue')) {
+                            btn.click();
+                            break;
+                        }
+                    }
+                """)
+                time.sleep(1.5)
+
+                # 確認
+                try:
+                    loc = page.inner_text("#glow-ingress-line2")
+                    logger.info("[catalog_discover] 配送先設定後: %s", loc.strip())
+                    if AU_DELIVERY_POSTCODE in loc or "Sydney" in loc:
+                        return True
+                except Exception:
+                    pass
+
+                logger.warning("[catalog_discover] 配送先が2002に変わったか確認できません（続行）")
+                return False
+
+            except Exception as e:
+                logger.warning("[catalog_discover] 配送先設定失敗: %s", e)
+                return False
+
         for raw_url in seller_urls:
             m = re.search(r"me=([A-Z0-9]+)", raw_url)
             if not m:
@@ -314,6 +471,10 @@ def scrape_seller_asins(
                 if route.request.resource_type in ("image", "media", "font")
                 else route.continue_(),
             )
+
+            # ── AU配送先をSydney(2002)に設定 ──
+            # JPのままだと価格が正しく表示されない or 価格0件になる
+            _set_au_delivery_location(page)
 
             seller_new = 0
             # ソート順をランダムに選択（毎セラーごと）→ 同じセラーから異なる商品面を発掘
@@ -432,6 +593,7 @@ def scrape_seller_asins(
                             if route.request.resource_type in ("image", "media", "font")
                             else route.continue_(),
                         )
+                        _set_au_delivery_location(page)  # ノープロキシ再試行でも配送先を設定
                         consecutive_empty = 0
                         continue  # 同じページをプロキシなしで再試行
                     logger.warning("[catalog_discover] エラー seller=%s page=%d: %s", seller_id, page_num, e)
@@ -977,18 +1139,34 @@ def discover_and_list(
     # ── Step 1: 既存ASIN取得 ──────────────────────────────────────
     existing_asins = get_existing_asins()
 
-    # ── Step 2: 競合セラーページスクレイピング → 新規ASIN ─────────
-    seller_urls = config.SELLER_URLS
-    if not seller_urls:
-        logger.error("[catalog_discover] SELLER_URLS 未設定。終了")
-        return [], 0, 0, 0, 0, 0
-    logger.info("[catalog_discover] 競合セラー: %d件 / 最大%dページ/セラー",
-                len(seller_urls), max_pages)
-    new_asins, scrape_prices = scrape_seller_asins(
-        seller_urls=seller_urls,
-        max_pages=max_pages,
-        existing_asins=existing_asins,
-    )
+    # ── Step 2: ASIN収集（CSV優先 → Playwrightフォールバック）────────
+    # Price Analyzer（ローカルGUIツール）のCSVが新しければそちらを優先使用。
+    # CSVは実ブラウザ + AU配送先設定済みの正確な価格データを持つ。
+    # CSVがない場合（GitHub Actions等）はPlaywrightスクレイピングにフォールバック。
+    csv_asins, csv_prices, csv_titles = load_price_analyzer_csvs()
+
+    if csv_asins:
+        # ── CSV利用パス ──
+        logger.info("[catalog_discover] Price Analyzer CSV: %d件 → Playwrightスクレイピングをスキップ", len(csv_asins))
+        new_asins = [a for a in csv_asins if a not in existing_asins]
+        scrape_prices = csv_prices  # CSV価格をscrape_pricesとして引き継ぐ
+        logger.info("[catalog_discover] CSV由来の新規ASIN: %d件（既存%d件除外済み）",
+                    len(new_asins), len(csv_asins) - len(new_asins))
+    else:
+        # ── Playwright スクレイピングパス（フォールバック）──
+        seller_urls = config.SELLER_URLS
+        if not seller_urls:
+            logger.error("[catalog_discover] SELLER_URLS 未設定。終了")
+            return [], 0, 0, 0, 0, 0
+        logger.info("[catalog_discover] 競合セラー: %d件 / 最大%dページ/セラー",
+                    len(seller_urls), max_pages)
+        new_asins, scrape_prices = scrape_seller_asins(
+            seller_urls=seller_urls,
+            max_pages=max_pages,
+            existing_asins=existing_asins,
+        )
+        csv_titles = {}
+
     if not new_asins:
         logger.info("[catalog_discover] 新規ASIN候補なし。終了")
         return [], 0, 0, 0, 0, 0, 0
@@ -1041,13 +1219,42 @@ def discover_and_list(
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
     # ── Step 4 & 5: AU FBM価格を取得して出品候補を絞る ──
-    # get_item_offers でFBMセラーの最安値を取得（FBA除外・自分除外）
-    # ★ スクレイピングではJSブロックのため価格が取れない → APIで代替
-    logger.info(
-        "[catalog_discover] AU FBM価格確認: %d件 (約%.0f分)",
-        len(asins_with_stock), len(asins_with_stock) * AU_PRICE_INTERVAL / 60,
-    )
-    fbm_prices = get_au_fbm_prices(asins_with_stock)
+    # CSV由来のASINはすでに価格を持っているのでAPIコール不要。
+    # Playwright由来 or CSV価格なしのASINのみAPIで取得。
+    asins_need_api_price = [a for a in asins_with_stock if a not in scrape_prices]
+    asins_have_csv_price = [a for a in asins_with_stock if a in scrape_prices]
+
+    fbm_prices: dict = {}
+
+    if asins_need_api_price:
+        logger.info(
+            "[catalog_discover] AU FBM価格確認（API）: %d件 (約%.0f分)"
+            " / CSV価格あり: %d件（APIスキップ）",
+            len(asins_need_api_price), len(asins_need_api_price) * AU_PRICE_INTERVAL / 60,
+            len(asins_have_csv_price),
+        )
+        fbm_prices = get_au_fbm_prices(asins_need_api_price)
+    else:
+        logger.info("[catalog_discover] 全%d件にCSV価格あり → AU FBM API呼び出しスキップ",
+                    len(asins_with_stock))
+
+    # CSV価格をマージ（MIN_AU_LISTING_PRICE 以上のもののみ）
+    csv_merged = 0
+    for asin in asins_have_csv_price:
+        csv_price = scrape_prices[asin]
+        if csv_price and csv_price >= config.MIN_AU_LISTING_PRICE:
+            fbm_prices[asin] = csv_price
+            csv_merged += 1
+        elif csv_price and csv_price < config.MIN_AU_LISTING_PRICE:
+            # CSV価格がフロア未満でも MIN_AU_LISTING_PRICE で出品
+            fbm_prices[asin] = config.MIN_AU_LISTING_PRICE
+            logger.info("[catalog_discover] %s: CSV価格AU$%.2f < フロアAU$%.2f → フロア価格で出品",
+                        asin, csv_price, config.MIN_AU_LISTING_PRICE)
+            csv_merged += 1
+
+    if csv_merged:
+        logger.info("[catalog_discover] CSV価格マージ: %d件", csv_merged)
+
     au_candidates = [a for a in asins_with_stock if fbm_prices.get(a)]
     skipped_no_au = len(asins_with_stock) - len(au_candidates)
     logger.info(
@@ -1100,20 +1307,39 @@ def discover_and_list(
             continue
 
         # NGワード＋重量チェック（Catalog APIでタイトル・重量を同時取得）
+        # CSV由来のタイトルがあればAPIコールをスキップ（重量はAPIが必要）
         # まずJPカタログで取得。JPにないASIN（AU専用）はAUカタログでフォールバック
-        try:
-            cat_api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
-            cat_resp = cat_api.get_catalog_item(
-                asin,
-                marketplaceIds=[MARKETPLACE_JP],
-                includedData=["summaries", "dimensions"],
-            )
-            payload = cat_resp.payload or {}
-            title = (payload.get("summaries") or [{}])[0].get("itemName", "") or ""
-            weight_kg = _extract_effective_weight_kg(payload)  # 実重量 vs 容積重量の大きい方
-        except Exception:
-            title = ""
-            weight_kg = None
+        weight_kg = None
+
+        # CSV由来タイトルがあればAPIを使わずタイトルを設定、重量取得のみAPI実行
+        if asin in csv_titles:
+            title = csv_titles[asin]
+            # 重量はCatalog APIで取得（タイトルより重要）
+            try:
+                cat_api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
+                cat_resp = cat_api.get_catalog_item(
+                    asin,
+                    marketplaceIds=[MARKETPLACE_JP],
+                    includedData=["dimensions"],  # タイトル不要 → dimensionsのみ
+                )
+                payload = cat_resp.payload or {}
+                weight_kg = _extract_effective_weight_kg(payload)
+            except Exception:
+                pass
+        else:
+            try:
+                cat_api = CatalogItems(credentials=_JP_CREDS, marketplace=Marketplaces.JP)
+                cat_resp = cat_api.get_catalog_item(
+                    asin,
+                    marketplaceIds=[MARKETPLACE_JP],
+                    includedData=["summaries", "dimensions"],
+                )
+                payload = cat_resp.payload or {}
+                title = (payload.get("summaries") or [{}])[0].get("itemName", "") or ""
+                weight_kg = _extract_effective_weight_kg(payload)  # 実重量 vs 容積重量の大きい方
+            except Exception:
+                title = ""
+                weight_kg = None
 
         # JPでタイトルが取れなかった場合 → AUカタログでフォールバック
         # AU専用ASINはJPに存在しないためタイトルが空になる → NGチェックが効かないバグを防ぐ
