@@ -84,12 +84,14 @@ AU_PRICE_INTERVAL = 2.1  # Products API AU: 0.5 req/s
 PATCH_INTERVAL = 0.3        # ListingsItems: 5 req/s
 RESTRICTION_INTERVAL = 1.1  # ListingsRestrictions: 1 req/s
 
-# Playwright スクレイピング用 User-Agent リスト（ランダム選択）
+# Playwright スクレイピング用 User-Agent リスト（ランダム選択・最新Chrome）
 _USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
 ]
 
 # ソート順リスト: 毎回ランダムで変えることで同じセラーから異なる商品を発掘
@@ -231,8 +233,52 @@ def scrape_seller_asins(
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
+                # 本物ブラウザに近づける追加フラグ
+                "--disable-infobars",
+                "--window-size=1920,1080",
+                "--start-maximized",
+                "--disable-extensions",
+                "--disable-gpu",
+                "--ignore-certificate-errors",
+                "--disable-web-security",
+                "--allow-running-insecure-content",
             ],
         )
+
+        def _make_context(browser, proxy_cfg):
+            """ブラウザコンテキストを生成（人間っぽい設定）"""
+            ua = random.choice(_USER_AGENTS)
+            ctx = browser.new_context(
+                viewport={
+                    "width":  random.choice([1280, 1366, 1440, 1920]),
+                    "height": random.choice([768, 800, 900, 1080]),
+                },
+                user_agent=ua,
+                locale="en-AU",
+                timezone_id="Australia/Sydney",
+                proxy=proxy_cfg,
+                extra_http_headers={
+                    "Accept-Language": "en-AU,en;q=0.9,en-US;q=0.8",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                },
+            )
+            # webdriver検知を複数箇所で無効化
+            ctx.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-AU', 'en']});
+                window.chrome = {runtime: {}};
+                Object.defineProperty(navigator, 'permissions', {
+                    get: () => ({query: () => Promise.resolve({state: 'granted'})})
+                });
+            """)
+            return ctx
 
         for raw_url in seller_urls:
             m = re.search(r"me=([A-Z0-9]+)", raw_url)
@@ -241,7 +287,7 @@ def scrape_seller_asins(
                 continue
             seller_id = m.group(1)
 
-            # ── セラーごとにプロキシをローテーション ──
+            # ── プロキシ設定（失敗時はノープロキシにフォールバック）──
             proxy_cfg = None
             if _proxy_list:
                 host, port = random.choice(_proxy_list)
@@ -256,30 +302,16 @@ def scrape_seller_asins(
                 logger.info("[catalog_discover] Playwright: seller=%s 開始（proxyなし）",
                             seller_id)
 
-            # セラーごとに新しいコンテキストを作成（プロキシ・UA をリセット）
-            context = browser.new_context(
-                viewport={
-                    "width":  random.choice([1280, 1366, 1440, 1920]),
-                    "height": random.choice([768, 800, 900, 1080]),
-                },
-                user_agent=random.choice(_USER_AGENTS),
-                locale="en-AU",
-                timezone_id="Australia/Sydney",
-                proxy=proxy_cfg,
-                extra_http_headers={
-                    "Accept-Language": "en-AU,en;q=0.9",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                },
-            )
-            context.add_init_script(
-                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
-            )
+            # セラーごとに新しいコンテキストを作成
+            context = _make_context(browser, proxy_cfg)
             page = context.new_page()
-            # 画像・JS・CSS・フォント・メディアをブロックして高速化（ASINはHTMLに含まれる）
+
+            # ── 画像・メディア・フォントのみブロック（JSとCSSは通す = 本物ブラウザっぽく）──
+            # スクリプトをブロックするとbot検知されやすいため通す
             page.route(
                 "**/*",
                 lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font", "stylesheet", "script")
+                if route.request.resource_type in ("image", "media", "font")
                 else route.continue_(),
             )
 
@@ -381,6 +413,27 @@ def scrape_seller_asins(
                     logger.warning("[catalog_discover] タイムアウト seller=%s page=%d", seller_id, page_num)
                     break
                 except Exception as e:
+                    err_str = str(e)
+                    # プロキシ接続失敗 → ノープロキシでリトライ
+                    if proxy_cfg and ("ERR_TUNNEL_CONNECTION_FAILED" in err_str
+                                      or "ERR_PROXY_CONNECTION_FAILED" in err_str
+                                      or "ERR_CONNECTION_REFUSED" in err_str):
+                        logger.warning(
+                            "[catalog_discover] プロキシ接続失敗 seller=%s → ノープロキシでリトライ",
+                            seller_id,
+                        )
+                        context.close()
+                        proxy_cfg = None
+                        context = _make_context(browser, None)
+                        page = context.new_page()
+                        page.route(
+                            "**/*",
+                            lambda route: route.abort()
+                            if route.request.resource_type in ("image", "media", "font")
+                            else route.continue_(),
+                        )
+                        consecutive_empty = 0
+                        continue  # 同じページをプロキシなしで再試行
                     logger.warning("[catalog_discover] エラー seller=%s page=%d: %s", seller_id, page_num, e)
                     break
 
