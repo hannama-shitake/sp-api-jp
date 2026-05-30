@@ -484,7 +484,11 @@ def scrape_seller_asins(
 
             consecutive_empty = 0  # 連続して新規ASINがなかったページ数
 
-            for page_num in range(1, max_pages + 1):
+            # ★ while ループ: プロキシ失敗時に同じページを再試行できるよう for→while に変換
+            # for の continue はページを advance するが、while + page_num -= 1 で同ページに戻れる
+            page_num = 0
+            while page_num < max_pages:
+                page_num += 1
                 page_url = (
                     f"https://www.amazon.com.au/s"
                     f"?me={seller_id}&marketplaceID={MARKETPLACE_AU}"
@@ -595,7 +599,8 @@ def scrape_seller_asins(
                         )
                         _set_au_delivery_location(page)  # ノープロキシ再試行でも配送先を設定
                         consecutive_empty = 0
-                        continue  # 同じページをプロキシなしで再試行
+                        page_num -= 1  # ★ 同じページを再試行（whileループで再実行）
+                        continue
                     logger.warning("[catalog_discover] エラー seller=%s page=%d: %s", seller_id, page_num, e)
                     break
 
