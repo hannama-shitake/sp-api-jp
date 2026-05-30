@@ -369,14 +369,20 @@ def scrape_seller_asins(
         def _set_au_delivery_location(page) -> bool:
             """
             Amazon AUの配送先をSydney（郵便番号2002）に設定する。
-            正しい配送先を設定しないと価格が表示されない・少なくなる。
-            セラーページ巡回前に1回呼び出す。
+            Playwright ネイティブ API を優先使用（JavaScript より確実）。
+            失敗してもスクレイピングは続行する（価格取得精度が落ちるだけ）。
             """
             try:
                 page.goto("https://www.amazon.com.au", wait_until="domcontentloaded", timeout=20_000)
                 _human_delay(1.5, 2.5)
 
-                # 既に2002に設定されているか確認
+                # CAPTCHA/ブロック確認
+                url_now = page.url.lower()
+                if "captcha" in url_now or "robot" in url_now or "sorry" in url_now:
+                    logger.warning("[catalog_discover] 配送先設定: ホームページでCAPTCHA検出 → スキップ")
+                    return False
+
+                # 既に2002設定済みか確認
                 try:
                     loc = page.inner_text("#glow-ingress-line2")
                     if AU_DELIVERY_POSTCODE in loc or "Sydney" in loc:
@@ -385,52 +391,99 @@ def scrape_seller_asins(
                 except Exception:
                     pass
 
-                # ダイアログを開く
-                page.evaluate("""
-                    const el = document.querySelector('#nav-global-location-popover-link')
-                             || document.querySelector('#glow-ingress-block');
-                    if (el) el.click();
-                """)
+                # ── Step 1: 配送先変更ダイアログを開く ──
+                # Playwright click を優先（より確実）、失敗したらJS evaluate にフォールバック
+                opened = False
+                for selector in ("#nav-global-location-popover-link", "#glow-ingress-block"):
+                    try:
+                        el = page.query_selector(selector)
+                        if el:
+                            el.click()
+                            opened = True
+                            break
+                    except Exception:
+                        pass
+                if not opened:
+                    page.evaluate(
+                        "document.querySelector('#nav-global-location-popover-link,"
+                        "#glow-ingress-block')?.click()"
+                    )
                 time.sleep(1.5)
 
-                # 郵便番号を入力
-                page.evaluate(f"""
-                    const inputs = document.querySelectorAll('input[type="text"]');
-                    for (const inp of inputs) {{
-                        const ph = (inp.placeholder || '').toLowerCase();
-                        if (ph.includes('post') || ph.includes('zip') || ph.includes('code')) {{
-                            inp.value = '{AU_DELIVERY_POSTCODE}';
-                            inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-                            inp.dispatchEvent(new Event('change', {{bubbles: true}}));
-                            break;
+                # ── Step 2: 郵便番号を入力 ──
+                # wait_for_selector でダイアログのinputが出るまで最大3秒待つ
+                INPUT_SELECTORS = (
+                    'input[placeholder*="postcode" i]',
+                    'input[placeholder*="postal" i]',
+                    'input[placeholder*="zip" i]',
+                    'input[placeholder*="code" i]',
+                    'input[data-testid*="postal" i]',
+                )
+                filled = False
+                for sel in INPUT_SELECTORS:
+                    try:
+                        page.wait_for_selector(sel, timeout=2000)
+                        inp = page.query_selector(sel)
+                        if inp:
+                            inp.triple_click()   # 既存値を全選択してから上書き
+                            inp.fill(AU_DELIVERY_POSTCODE)
+                            filled = True
+                            break
+                    except Exception:
+                        pass
+                if not filled:
+                    # フォールバック: JavaScript で直接設定
+                    page.evaluate(f"""
+                        const inputs = document.querySelectorAll('input[type="text"]');
+                        for (const inp of inputs) {{
+                            const ph = (inp.placeholder || '').toLowerCase();
+                            if (ph.includes('post') || ph.includes('zip') || ph.includes('code')) {{
+                                inp.value = '{AU_DELIVERY_POSTCODE}';
+                                inp.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                inp.dispatchEvent(new Event('change', {{bubbles: true}}));
+                                break;
+                            }}
                         }}
-                    }}
-                """)
-                time.sleep(0.8)
+                    """)
+                time.sleep(0.6)
 
-                # Applyボタンをクリック
-                page.evaluate("""
-                    const buttons = document.querySelectorAll('button');
-                    for (const btn of buttons) {
-                        const t = (btn.textContent || '').toLowerCase().trim();
-                        if (t.includes('apply') || t === 'done' || t.includes('continue')) {
-                            btn.click();
-                            break;
+                # ── Step 3: Apply ボタンをクリック ──
+                APPLY_SELECTORS = (
+                    'button:has-text("Apply")',
+                    'button:has-text("Done")',
+                    'input[type="submit"]',
+                )
+                applied = False
+                for sel in APPLY_SELECTORS:
+                    try:
+                        btn = page.query_selector(sel)
+                        if btn:
+                            btn.click()
+                            applied = True
+                            break
+                    except Exception:
+                        pass
+                if not applied:
+                    page.evaluate("""
+                        const buttons = document.querySelectorAll('button');
+                        for (const btn of buttons) {
+                            const t = (btn.textContent || '').toLowerCase().trim();
+                            if (t.includes('apply') || t === 'done') { btn.click(); break; }
                         }
-                    }
-                """)
+                    """)
                 time.sleep(1.5)
 
-                # 確認
+                # ── Step 4: 確認 ──
                 try:
                     loc = page.inner_text("#glow-ingress-line2")
-                    logger.info("[catalog_discover] 配送先設定後: %s", loc.strip())
+                    logger.info("[catalog_discover] 配送先設定後: [%s]", loc.strip())
                     if AU_DELIVERY_POSTCODE in loc or "Sydney" in loc:
+                        logger.info("[catalog_discover] ✅ 配送先: Sydney(2002) 設定成功")
                         return True
                 except Exception:
                     pass
 
-                logger.warning("[catalog_discover] 配送先が2002に変わったか確認できません（続行）")
+                logger.warning("[catalog_discover] ⚠️ 配送先が2002になったか確認不可（スクレイピングは続行）")
                 return False
 
             except Exception as e:
