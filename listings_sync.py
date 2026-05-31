@@ -134,13 +134,18 @@ def enrich_titles(listings: list) -> list:
     if not no_title:
         return listings
 
-    with sqlite3.connect(config.DB_PATH) as conn:
-        for l in no_title:
-            row = conn.execute(
-                "SELECT title FROM asin_candidates WHERE asin=?", (l["asin"],)
-            ).fetchone()
-            if row and row[0]:
-                l["title"] = row[0]
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            for l in no_title:
+                row = conn.execute(
+                    "SELECT title FROM asin_candidates WHERE asin=?", (l["asin"],)
+                ).fetchone()
+                if row and row[0]:
+                    l["title"] = row[0]
+    except sqlite3.OperationalError:
+        # asin_candidates テーブルが未作成（DB初回起動時など）→ 補完スキップ
+        logger.debug("[sync] asin_candidates テーブルなし → タイトル補完スキップ")
+        return listings
 
     enriched = sum(1 for l in no_title if l.get("title"))
     logger.info("[sync] タイトル補完: %d/%d件（asin_candidates から）", enriched, len(no_title))
