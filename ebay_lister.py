@@ -305,6 +305,10 @@ def calc_ebay_usd_price(jp_price_jpy: int, jpy_to_usd: float) -> float:
     jp_cost_usd  = jp_price_jpy * jpy_to_usd
     dhl_cost_usd = config.DHL_SHIPPING_JPY * jpy_to_usd
 
+    # ★ JP価格バッファ: APIの価格は実際の仕入れ値より安く出ることがある
+    # EBAY_JP_PRICE_BUFFER(デフォルト1.3)をかけて赤字を防ぐ
+    jp_cost_usd = jp_cost_usd * config.EBAY_JP_PRICE_BUFFER
+
     # 必要受取合計（buyer が払う item + shipping の最低ライン）
     required_net   = jp_cost_usd * (1 + config.MIN_PROFIT_RATE / 100) + dhl_cost_usd
     required_total = required_net / (1 - config.EBAY_FEE_RATE)
