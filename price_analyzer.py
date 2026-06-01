@@ -21,6 +21,7 @@ import re
 import sys
 import csv
 import time
+import random
 import argparse
 import datetime
 import traceback
@@ -37,6 +38,16 @@ from webdriver_manager.chrome import ChromeDriverManager
 _BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
 CSV_OUTPUT_DIR = os.path.join(_BASE_DIR, "csv_output", "AU", "base")
 AU_POSTCODE    = "2002"   # Sydney
+
+# ソート順リスト: 毎回ランダムに選択 → 同じセラーから毎回異なる商品を発掘
+_SORT_ORDERS = [
+    "",                       # Featured（デフォルト）
+    "&s=price-asc-rank",      # 価格の安い順
+    "&s=price-desc-rank",     # 価格の高い順
+    "&s=date-desc-rank",      # 新着順
+    "&s=review-rank",         # カスタマーレビュー評価順
+    "&s=relevanceblender",    # 関連性順
+]
 
 
 # ── セラーURL読み込み ─────────────────────────────────────────────────
@@ -56,13 +67,14 @@ def load_seller_urls() -> list:
 # ── ブラウザ起動 ──────────────────────────────────────────────────────
 def create_driver() -> webdriver.Chrome:
     options = Options()
-    # headless=False（実ブラウザ表示）→ Amazon のbot検知を回避
+    # ★ headless なし（実ブラウザ表示）→ Amazon のbot検知を回避
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--start-maximized")          # ★ ウィンドウを最大化して前面表示
+    options.add_argument("--window-position=100,100")  # ★ 画面左上に配置
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
-    options.add_argument("--window-size=1280,900")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -211,7 +223,11 @@ def _get_title(item) -> str:
 def scrape_seller(driver, url: str, max_pages: int, seen: set) -> list:
     m = re.search(r"me=([A-Z0-9]+)", url)
     seller_id = m.group(1) if m else url
-    print(f"\n[INFO] ── セラー {seller_id} 開始 ──")
+
+    # ★ ソート順をランダムに選択（毎回異なる商品を発掘）
+    sort_param = random.choice(_SORT_ORDERS)
+    sort_label = sort_param.replace("&s=", "") or "Featured（デフォルト）"
+    print(f"\n[INFO] ── セラー {seller_id} 開始（ソート: {sort_label}）──")
 
     products = []
     page_num  = 0
@@ -221,7 +237,7 @@ def scrape_seller(driver, url: str, max_pages: int, seen: set) -> list:
 
     while page_num < max_pages:
         page_num += 1
-        page_url = base_url + f"&page={page_num}"
+        page_url = base_url + sort_param + f"&page={page_num}"
 
         try:
             driver.get(page_url)
@@ -256,9 +272,7 @@ def scrape_seller(driver, url: str, max_pages: int, seen: set) -> list:
                     asin = item.get_attribute("data-asin") or ""
                     if not asin or len(asin) != 10 or asin in seen:
                         continue
-                    price = _get_price(item)
-                    if price <= 0:
-                        continue   # 価格なしはスキップ
+                    price = _get_price(item)   # 0でもスキップしない（ASINだけでも価値あり）
                     title = _get_title(item)
                     seen.add(asin)
                     products.append({"asin": asin, "price": price, "title": title})
@@ -313,9 +327,29 @@ def main():
     seen_asins   = set()
 
     try:
-        # 1. AU配送先をSydney(2002)に設定
+        # 1. AU配送先をSydney(2002)に設定（自動試行 → 失敗なら手動）
+        driver.get("https://www.amazon.com.au")
+        time.sleep(3)
         set_delivery_location(driver)
         time.sleep(1)
+
+        # 配送先確認 → 未設定なら手動で設定してもらう
+        try:
+            loc = driver.find_element(By.ID, "glow-ingress-line2").text
+        except Exception:
+            loc = ""
+        if "2002" not in loc and "Sydney" not in loc.lower():
+            print("\n" + "="*60)
+            print("⚠️  配送先の自動設定に失敗しました。")
+            print("   Chromeウィンドウを開いて手動で設定してください：")
+            print("   1. 左上の配送先（📍マーク）をクリック")
+            print("   2. 郵便番号に「2002」を入力")
+            print("   3. 「Apply」ボタンをクリック")
+            print("="*60)
+            input("   設定が完了したらここでEnterを押してください → ")
+            print("[INFO] 手動設定完了。スクレイピングを開始します...")
+        else:
+            print(f"[INFO] ✅ 配送先確認: {loc}")
 
         # 2. 3セラーを順番にスクレイピング
         for url in seller_urls:
