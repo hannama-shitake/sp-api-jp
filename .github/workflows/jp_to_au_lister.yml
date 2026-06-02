@@ -1,8 +1,9 @@
 name: JP → AU 直送出品
 
 on:
-  schedule:
-    - cron: '0 20 * * *'  # 毎日 05:00 JST（= UTC 20:00）
+  # schedule停止: 3セラー以外の商品が混入するため無効化（2026-06-01）
+  # schedule:
+  #   - cron: '0 20 * * *'  # 毎日 05:00 JST（= UTC 20:00）
   workflow_dispatch:
     inputs:
       dry_run:
