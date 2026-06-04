@@ -46,6 +46,10 @@ PRICE_MARKUP_MULTIPLIER = float(os.getenv("PRICE_MARKUP_MULTIPLIER", "1.3"))
 # JP価格不明でもこれを下回る価格では出品・維持しない
 MIN_AU_LISTING_PRICE = float(os.getenv("MIN_AU_LISTING_PRICE", "45.0"))
 
+# 出品時の安全バッファ（AUD）: 競合が送料別建ての場合の赤字防止
+# DHL¥3,800≈AU$33相当。price_updateが6時間以内に正確な価格に修正する。
+LISTING_PRICE_BUFFER_AUD = float(os.getenv("LISTING_PRICE_BUFFER_AUD", "35.0"))
+
 # ── eBay 認証 ────────────────────────────────────────────────
 EBAY_APP_ID = os.getenv("EBAY_APP_ID", "")        # Client ID
 EBAY_DEV_ID = os.getenv("EBAY_DEV_ID", "")        # Dev ID

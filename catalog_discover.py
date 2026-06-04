@@ -1315,15 +1315,17 @@ def discover_and_list(
 
         offer_info = seller_counts.get(asin, {"seller_count": 0, "min_price": None})
 
-        # 価格決定: スクレイプ/API価格 → 最低フロア(MIN_AU_LISTING_PRICE)以上を保証
+        # 価格決定: 競合API価格 + 安全バッファ → フロア以上を保証
+        # ★ AU$35バッファ: 競合が送料を別建てにしている場合の赤字防止
+        # （DHL¥3,800≈AU$33相当）。price_updateが6時間以内に正確な価格に修正する。
         raw_price = offer_info["min_price"]
         if not raw_price:
             skipped_unprofitable += 1
             continue
-        final_price = max(raw_price, config.MIN_AU_LISTING_PRICE)
-        if final_price != raw_price:
-            logger.info("[catalog_discover] %s: AU$%.2f < フロアAU$%.2f → フロア価格で出品",
-                        asin, raw_price, config.MIN_AU_LISTING_PRICE)
+        buffered_price = raw_price + config.LISTING_PRICE_BUFFER_AUD
+        final_price = max(buffered_price, config.MIN_AU_LISTING_PRICE)
+        logger.info("[catalog_discover] %s: AU$%.2f + バッファAU$%.0f = AU$%.2f",
+                    asin, raw_price, config.LISTING_PRICE_BUFFER_AUD, final_price)
 
         jp_price, _ = jp_prices.get(asin, (None, False))
         log_msg = (f"{asin}: AU${final_price:.2f}"
