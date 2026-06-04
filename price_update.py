@@ -212,7 +212,9 @@ def get_au_competitor_prices_bulk(asins: list) -> tuple:
                     continue  # 自分除外
                 amount = offer.get("ListingPrice", {}).get("Amount")
                 if amount:
-                    fbm_prices.append(float(amount))
+                    # ★ 商品価格＋送料の合計を競合価格とする（送料別建ての競合に対応）
+                    shipping = float(offer.get("ShippingPrice", {}).get("Amount") or 0)
+                    fbm_prices.append(float(amount) + shipping)
             if fbm_prices:
                 result[asin] = min(fbm_prices)
         except SellingApiException as e:

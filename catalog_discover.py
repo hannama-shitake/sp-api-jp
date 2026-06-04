@@ -831,7 +831,9 @@ def get_au_fbm_prices(asins: list) -> dict:
                     amount = offer.get("ListingPrice", {}).get("Amount")
                     if not amount:
                         continue
-                    price = float(amount)
+                    # ★ 商品価格＋送料の合計を競合価格とする（送料別建ての競合に対応）
+                    shipping = float(offer.get("ShippingPrice", {}).get("Amount") or 0)
+                    price = float(amount) + shipping
                     if offer.get("IsFulfilledByAmazon"):
                         fba_prices.append(price)  # FBA価格を記録
                         continue
