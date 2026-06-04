@@ -1279,41 +1279,13 @@ def discover_and_list(
         return [], skipped_no_stock, 0, 0, 0, 0, 0
 
     # ── Step 4 & 5: AU FBM価格を取得して出品候補を絞る ──
-    # CSV由来のASINはすでに価格を持っているのでAPIコール不要。
-    # Playwright由来 or CSV価格なしのASINのみAPIで取得。
-    asins_need_api_price = [a for a in asins_with_stock if a not in scrape_prices]
-    asins_have_csv_price = [a for a in asins_with_stock if a in scrape_prices]
-
-    fbm_prices: dict = {}
-
-    if asins_need_api_price:
-        logger.info(
-            "[catalog_discover] AU FBM価格確認（API）: %d件 (約%.0f分)"
-            " / CSV価格あり: %d件（APIスキップ）",
-            len(asins_need_api_price), len(asins_need_api_price) * AU_PRICE_INTERVAL / 60,
-            len(asins_have_csv_price),
-        )
-        fbm_prices = get_au_fbm_prices(asins_need_api_price)
-    else:
-        logger.info("[catalog_discover] 全%d件にCSV価格あり → AU FBM API呼び出しスキップ",
-                    len(asins_with_stock))
-
-    # CSV価格をマージ（MIN_AU_LISTING_PRICE 以上のもののみ）
-    csv_merged = 0
-    for asin in asins_have_csv_price:
-        csv_price = scrape_prices[asin]
-        if csv_price and csv_price >= config.MIN_AU_LISTING_PRICE:
-            fbm_prices[asin] = csv_price
-            csv_merged += 1
-        elif csv_price and csv_price < config.MIN_AU_LISTING_PRICE:
-            # CSV価格がフロア未満でも MIN_AU_LISTING_PRICE で出品
-            fbm_prices[asin] = config.MIN_AU_LISTING_PRICE
-            logger.info("[catalog_discover] %s: CSV価格AU$%.2f < フロアAU$%.2f → フロア価格で出品",
-                        asin, csv_price, config.MIN_AU_LISTING_PRICE)
-            csv_merged += 1
-
-    if csv_merged:
-        logger.info("[catalog_discover] CSV価格マージ: %d件", csv_merged)
+    # ★ スクレイプ/CSV価格はアイテム価格のみで送料別建てを見落とす可能性があるため
+    # 全ASINを必ずAPIで価格確認する。APIは商品価格＋送料の合計を返す（修正済み）。
+    logger.info(
+        "[catalog_discover] AU FBM価格確認（API）: %d件 (約%.0f分)",
+        len(asins_with_stock), len(asins_with_stock) * AU_PRICE_INTERVAL / 60,
+    )
+    fbm_prices = get_au_fbm_prices(asins_with_stock)
 
     au_candidates = [a for a in asins_with_stock if fbm_prices.get(a)]
     skipped_no_au = len(asins_with_stock) - len(au_candidates)
