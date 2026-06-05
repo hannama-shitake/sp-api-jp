@@ -177,54 +177,69 @@ def get_jp_prices_bulk(asins: list) -> dict:
 # ─────────────────────────────────────────────
 
 def get_au_competitor_prices_bulk(asins: list) -> tuple:
-    """FBMセラーのみの最安値と3セラー不在ASINを返す。
+    """AU競合価格を20件バッチで一括取得する。
+    get_competitive_pricing_for_asins（バッチ20件）を使用することで
+    get_item_offers（1件ずつ）より約20倍高速。10,000件でも約17分で完了。
+
+    LandedPrice = ListingPrice + ShippingPrice（送料込み合計）を使用。
+    送料別建て競合にも正しく対応。
+
     Returns: (prices_dict {asin: price_aud}, no_target_asins set)
-    - prices_dict: FBA除外・自分除外のFBM最安値
-    - no_target_asins: 3セラー（TARGET_SELLER_IDS）が誰もいないASIN → 削除対象
     """
     api = Products(credentials=_AU_CREDS, marketplace=Marketplaces.AU)
-    my_seller_id = config.AMAZON_AU_CREDENTIALS.get("seller_id", "")
     result = {}
     no_target_asins = set()
+    batch_size = 20
     total = len(asins)
 
-    for i, asin in enumerate(asins):
-        if i % 50 == 0:
-            logger.info("[price_update] AU FBM価格取得中: %d/%d", i, total)
+    for i in range(0, total, batch_size):
+        batch = asins[i: i + batch_size]
+        if i % 200 == 0:
+            logger.info("[price_update] AU競合価格取得中: %d/%d", i, total)
         try:
-            resp = api.get_item_offers(asin, item_condition="New")
-            offers = (resp.payload or {}).get("Offers", [])
+            resp = api.get_competitive_pricing_for_asins(batch)
+            items = resp.payload if isinstance(resp.payload, list) else []
+            for item in items:
+                asin = item.get("ASIN", "")
+                status = item.get("status", "")
+                if status != "Success":
+                    continue
 
-            # 3セラー存在チェック（FBA・FBM問わず）
-            # 全員いなくなった = 彼らが撤退 or 真贋弾かれた → 我々も撤退
-            target_present = any(
-                o.get("SellerId", "") in config.TARGET_SELLER_IDS
-                for o in offers
-            )
-            if not target_present:
-                no_target_asins.add(asin)
+                comp_prices = (
+                    item.get("Product", {})
+                    .get("CompetitivePricing", {})
+                    .get("CompetitivePrices", [])
+                )
 
-            fbm_prices = []
-            for offer in offers:
-                if offer.get("IsFulfilledByAmazon"):
-                    continue  # FBA除外
-                if offer.get("SellerId") == my_seller_id:
-                    continue  # 自分除外
-                amount = offer.get("ListingPrice", {}).get("Amount")
-                if amount:
-                    # ★ 商品価格＋送料の合計を競合価格とする（送料別建ての競合に対応）
-                    shipping = float(offer.get("ShippingPrice", {}).get("Amount") or 0)
-                    fbm_prices.append(float(amount) + shipping)
-            if fbm_prices:
-                result[asin] = min(fbm_prices)
+                # LandedPrice = ListingPrice + ShippingPrice（送料込み合計）
+                # New条件の最安LandedPriceを競合価格とする
+                landed_prices = []
+                for cp in comp_prices:
+                    if cp.get("condition", "").lower() not in ("new", "new_new"):
+                        continue
+                    # LandedPriceがあればそれを使う（送料込み合計）
+                    landed = cp.get("Price", {}).get("LandedPrice", {}).get("Amount")
+                    if landed:
+                        landed_prices.append(float(landed))
+                    else:
+                        # LandedPriceがなければListingPrice+ShippingPriceで計算
+                        listing = cp.get("Price", {}).get("ListingPrice", {}).get("Amount")
+                        shipping = cp.get("Price", {}).get("ShippingPrice", {}).get("Amount", 0)
+                        if listing:
+                            landed_prices.append(float(listing) + float(shipping or 0))
+
+                if landed_prices:
+                    result[asin] = min(landed_prices)
+
         except SellingApiException as e:
-            logger.warning("[price_update] AU FBM価格エラー %s: %s", asin, e)
+            logger.warning("[price_update] AU競合価格バッチエラー (%s...): %s", batch[0], e)
         time.sleep(_AU_PRICE_INTERVAL)
 
     logger.info(
-        "[price_update] AU FBM価格取得完了: %d件中%d件取得 / 3セラー不在: %d件",
-        total, len(result), len(no_target_asins),
+        "[price_update] AU競合価格取得完了: %d件中%d件取得",
+        total, len(result),
     )
+    # no_target_asinsは空（バッチAPIではセラーIDが分からないため削除判定しない）
     return result, no_target_asins
 
 
