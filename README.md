@@ -5,6 +5,7 @@ Gmail: no.more.awamori@gmail.com（SP-API通知・Amazon AU・eBay全部ここ�
 GitHub: https://github.com/hannama-shitake/sp-api-jp  
 ローカル: `C:\Users\user\Desktop\sp-api\`
 
+> ⚠️ このリポジトリは**Public（公開）**。認証情報・APIキー・.envファイルは絶対にコミットしない。
 > ⚠️ YM商会Gmail（degital.sales.ymcorp@gmail.com）と混在禁止
 
 ---
