@@ -12,11 +12,10 @@ GitHub: https://github.com/hannama-shitake/sp-api-jp
 
 ## ビジネス概要
 
-**3セラー（A11Q13J4AP3PRH / A3I4NYJKP3GMMP / A3SFQLVXY8GUH2）がAmazon AUで売っている商品に相乗り出品し、競合1%アンダーカットで売る。**
+**特定セラーがAmazon AUで売っている商品に相乗り出品し、競合1%アンダーカットで売る。**
 
 - JP→AU FBM ドロップシッピング（注文が来たらJPで購入してAUに発送）
-- 3セラー自身がJP→AUアービトラージ業者 → 彼らの商品 = JPで仕入れられる
-- セラーURLは `seller_urls.txt` に固定済み
+- 対象セラーURLは `seller_urls.txt` で管理
 
 ### KPI目標
 - 出品数: **10,000件**（2026-06現在 ~1,200件 active）
