@@ -248,7 +248,10 @@ def show_stats():
             "SELECT COUNT(*) FROM listings WHERE status='active' AND (title IS NULL OR title='')"
         ).fetchone()[0]
         products = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
-        candidates = conn.execute("SELECT COUNT(*) FROM asin_candidates").fetchone()[0]
+        try:
+            candidates = conn.execute("SELECT COUNT(*) FROM asin_candidates").fetchone()[0]
+        except Exception:
+            candidates = 0
 
         # listings に products エントリがない件数
         orphan = conn.execute("""
