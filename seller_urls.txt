@@ -1,5 +1,5 @@
 # Amazon AU 競合セラーURL一覧
-# セラー数: 8
+# セラー数: 11
 #
 https://www.amazon.com.au/s?me=A11Q13J4AP3PRH&marketplaceID=A39IBJ37TRP1C6
 https://www.amazon.com.au/s?me=A3I4NYJKP3GMMP&marketplaceID=A39IBJ37TRP1C6
@@ -9,3 +9,6 @@ https://www.amazon.com.au/s?me=A2ZMFMKSDHA43S&marketplaceID=A39IBJ37TRP1C6
 https://www.amazon.com.au/s?me=A1KEKPBBINIWZJ&marketplaceID=A39IBJ37TRP1C6
 https://www.amazon.com.au/s?me=A3OZE2JY7W6D5K&marketplaceID=A39IBJ37TRP1C6
 https://www.amazon.com.au/s?me=A30I4J5A5F6IFQ&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A3GCJ89X0ITT23&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A2PAWRNS3ZJQ1Y&marketplaceID=A39IBJ37TRP1C6
+https://www.amazon.com.au/s?me=A1ZWJJXWZAAW4T&marketplaceID=A39IBJ37TRP1C6
