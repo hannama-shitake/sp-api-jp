@@ -156,7 +156,7 @@ def ask_gemini(data: list, exchange_rate: float) -> str:
         return "GEMINI_API_KEY未設定"
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     # サマリー統計
     total = len(data)
