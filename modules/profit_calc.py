@@ -144,7 +144,9 @@ def calc_optimal_au_price(
 
     rate = exchange_rate if exchange_rate else get_jpy_to_aud()
     intl_shipping_jpy = get_shipping_jpy(weight_kg)   # 重量考慮した送料
-    required_revenue_jpy = jp_price_jpy * (1 + target_profit_rate / 100) + intl_shipping_jpy
+    # JP価格バッファ: price_update実行後の6時間でJP価格が上昇しても赤字にならないよう15%上乗せ
+    buffered_jp_price = jp_price_jpy * config.AU_JP_PRICE_BUFFER
+    required_revenue_jpy = buffered_jp_price * (1 + target_profit_rate / 100) + intl_shipping_jpy
     required_net_aud = required_revenue_jpy * rate
     au_price = required_net_aud / (1 - config.AU_FEE_RATE)
     return round(au_price * config.PRICE_MARKUP_MULTIPLIER, 2)

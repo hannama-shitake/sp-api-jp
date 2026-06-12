@@ -60,6 +60,10 @@ EBAY_FEE_RATE = float(os.getenv("EBAY_FEE_RATE", "0.1325"))  # 13.25%
 # JP価格APIは実際の仕入れ値より安く出る場合がある（在庫高騰・相場変動）
 # このバッファをかけることで赤字出品を防ぐ（1.3 = 30%の価格上昇を吸収）
 EBAY_JP_PRICE_BUFFER = float(os.getenv("EBAY_JP_PRICE_BUFFER", "1.3"))
+
+# Amazon AU用JP価格バッファ: price_update実行からの6時間でJP価格が上昇しても赤字にならないよう
+# min_price計算時にJP価格にこの係数をかける（1.15 = 15%の価格上昇を吸収）
+AU_JP_PRICE_BUFFER = float(os.getenv("AU_JP_PRICE_BUFFER", "1.15"))
 JPY_TO_USD_FALLBACK = float(os.getenv("JPY_TO_USD_FALLBACK", "0.0067"))  # 1 JPY ≈ 0.0067 USD
 EBAY_SHIPPING_US_USD   = float(os.getenv("EBAY_SHIPPING_US_USD",   "25.0"))  # 米国内送料(USD)
 EBAY_SHIPPING_INTL_USD = float(os.getenv("EBAY_SHIPPING_INTL_USD", "30.0"))  # 国際送料(USD)
