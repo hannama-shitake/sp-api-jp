@@ -1,7 +1,7 @@
 name: eBay Cross-List
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 手動実行のみ（スケジュール停止中）
     inputs:
       dry_run:
         description: 'DRY RUN（確認のみ、実際には出品しない）'
@@ -23,8 +23,8 @@ on:
         options:
           - 'false'
           - 'true'
-  schedule:
-    - cron: '0 20 * * *'  # 毎日05:00 JST
+  # schedule:  # eBay停止中（2026-06-09）利益なし・ストア解約のため
+  #   - cron: '0 20 * * *'  # 毎日05:00 JST
 
 jobs:
   ebay-lister:
