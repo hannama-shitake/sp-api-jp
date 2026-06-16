@@ -24,9 +24,9 @@ AMAZON_AU_CREDENTIALS = {
 
 # ── 利益計算パラメータ ────────────────────────────────────────
 MIN_PROFIT_RATE = float(os.getenv("MIN_PROFIT_RATE", "18"))  # 最低粗利率(%)
-INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY", "3800"))  # 国際送料デフォルト(円) DHL想定
-DHL_SHIPPING_JPY = int(os.getenv("DHL_SHIPPING_JPY", "3800"))   # DHL送料(2kg以下)
-EMS_SHIPPING_JPY = int(os.getenv("EMS_SHIPPING_JPY", "2500"))   # EMS/eパケット送料(2kg超)
+INTL_SHIPPING_JPY = int(os.getenv("INTL_SHIPPING_JPY") or "3800")  # 国際送料デフォルト(円) DHL想定
+DHL_SHIPPING_JPY = int(os.getenv("DHL_SHIPPING_JPY") or "3800")   # DHL送料(2kg以下)
+EMS_SHIPPING_JPY = int(os.getenv("EMS_SHIPPING_JPY") or "2500")   # EMS/eパケット送料(2kg超)
 DHL_MAX_WEIGHT_KG = float(os.getenv("DHL_MAX_WEIGHT_KG", "2.0"))  # DHLのkg上限
 AU_FEE_RATE = float(os.getenv("AU_FEE_RATE", "0.15"))  # Amazon AU 手数料率
 PRICE_UPDATE_THRESHOLD = float(os.getenv("PRICE_UPDATE_THRESHOLD", "3"))  # 価格変動閾値(%)
@@ -35,7 +35,7 @@ MAX_FAIR_PRICE_RATIO = float(os.getenv("MAX_FAIR_PRICE_RATIO", "4.0"))  # Amazon
 # ── 重量別送料設定 ────────────────────────────────────────────
 # 1kg以上は送料が大幅増加するため追加コストを見込む
 HEAVY_ITEM_THRESHOLD_KG = float(os.getenv("HEAVY_ITEM_THRESHOLD_KG", "1.0"))   # 重量品とみなす閾値(kg)
-HEAVY_SHIPPING_SURCHARGE_JPY = int(os.getenv("HEAVY_SHIPPING_SURCHARGE_JPY", "2500"))  # 重量品追加送料(円) ※変更: HEAVY_SHIPPING_SURCHARGE_JPY Secret で上書き可
+HEAVY_SHIPPING_SURCHARGE_JPY = int(os.getenv("HEAVY_SHIPPING_SURCHARGE_JPY") or "2500")  # 重量品追加送料(円) ※変更: HEAVY_SHIPPING_SURCHARGE_JPY Secret で上書き可
 DEFAULT_WEIGHT_KG = float(os.getenv("DEFAULT_WEIGHT_KG", "1.0"))  # 重量不明時のデフォルト(kg) → 1.0kg扱いで計算（保守的）
 MAX_LISTING_WEIGHT_KG = float(os.getenv("MAX_LISTING_WEIGHT_KG", "1.0"))  # 出品可能な最大重量(kg) - 1kg超は国際送料が高すぎるため出品しない
 
