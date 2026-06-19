@@ -24,7 +24,7 @@ from sp_api.base import Marketplaces, SellingApiException
 
 import config
 from apis.exchange_rate import get_jpy_to_aud
-from db.database import update_listing_price, mark_listing_deleted
+from db.database import update_listing_price, mark_listing_deleted, record_jp_price, get_recent_max_jp_price
 from modules.profit_calc import calc_optimal_au_price, calc_profit
 from utils.logger import get_logger
 from utils.notify import notify_price_update_summary
@@ -329,6 +329,13 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
 
         jp_price, in_stock = jp_data
 
+        # JP価格を price_history に記録（急落検知のため）
+        if jp_price:
+            try:
+                record_jp_price(asin, jp_price, exchange_rate)
+            except Exception:
+                pass
+
         # JP在庫切れ → 出品維持（削除しない。競合在庫切れ待ち戦略と同じ）
         if not in_stock:
             logger.info("[price_update] %s: JP在庫切れ → 出品維持（削除しない）", asin)
@@ -369,7 +376,19 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
             time.sleep(_AU_INTERVAL)
             continue
 
-        min_price = calc_optimal_au_price(jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
+        # 急落対策: 直近48時間の最高JP価格と比較し、急落（20%超の下落）があれば
+        # 最高値を基準に min_price を計算する（一時的な安値で赤字出品を防ぐ）
+        effective_jp_price = jp_price
+        try:
+            recent_max = get_recent_max_jp_price(asin, hours=48)
+            if recent_max and jp_price < recent_max * 0.80:
+                effective_jp_price = recent_max
+                logger.info("[price_update] %s: JP急落検知 ¥%d → ¥%d（48h最高値）で min_price 計算",
+                            asin, jp_price, recent_max)
+        except Exception:
+            pass
+
+        min_price = calc_optimal_au_price(effective_jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
 
         comp_price = au_comp_prices.get(asin)
         if comp_price:

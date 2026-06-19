@@ -120,6 +120,31 @@ def mark_listing_deleted(sku: str):
         )
 
 
+def record_jp_price(asin: str, price_jpy: int, exchange_rate: float):
+    """price_update 実行時の JP 価格を price_history に記録する"""
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO price_history (asin, platform, price_jpy, exchange_rate, recorded_at) VALUES (?, 'amazon_jp', ?, ?, ?)",
+            (asin, price_jpy, exchange_rate, now),
+        )
+
+
+def get_recent_max_jp_price(asin: str, hours: int = 48) -> Optional[int]:
+    """直近 hours 時間における JP 価格の最高値を返す（記録なければ None）"""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT MAX(price_jpy) FROM price_history
+            WHERE asin = ? AND platform = 'amazon_jp'
+              AND price_jpy IS NOT NULL
+              AND recorded_at >= datetime('now', ?)
+            """,
+            (asin, f"-{hours} hours"),
+        ).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def get_active_listings(platform: str = "amazon_au") -> list:
     """
     DB から active な出品一覧を返す。
