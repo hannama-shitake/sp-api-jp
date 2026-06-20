@@ -329,13 +329,6 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
 
         jp_price, in_stock = jp_data
 
-        # JP価格を price_history に記録（急落検知のため）
-        if jp_price:
-            try:
-                record_jp_price(asin, jp_price, exchange_rate)
-            except Exception:
-                pass
-
         # JP在庫切れ → 出品維持（削除しない。競合在庫切れ待ち戦略と同じ）
         if not in_stock:
             logger.info("[price_update] %s: JP在庫切れ → 出品維持（削除しない）", asin)
@@ -378,6 +371,7 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
 
         # 急落対策: 直近48時間の最高JP価格と比較し、急落（20%超の下落）があれば
         # 最高値を基準に min_price を計算する（一時的な安値で赤字出品を防ぐ）
+        # ★ record_jp_price より先に実行すること（今回の価格が最高値に混入するのを防ぐ）
         effective_jp_price = jp_price
         try:
             recent_max = get_recent_max_jp_price(asin, hours=48)
@@ -387,6 +381,13 @@ def update_au_prices(listings: list, jp_prices: dict, au_comp_prices: dict, exch
                             asin, jp_price, recent_max)
         except Exception:
             pass
+
+        # JP価格を price_history に記録（急落検知済みの後に記録）
+        if jp_price:
+            try:
+                record_jp_price(asin, jp_price, exchange_rate)
+            except Exception:
+                pass
 
         min_price = calc_optimal_au_price(effective_jp_price, exchange_rate=exchange_rate, weight_kg=weight_kg)
 
