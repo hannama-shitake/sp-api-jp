@@ -1217,7 +1217,7 @@ def discover_and_list(
         seller_urls = config.SELLER_URLS
         if not seller_urls:
             logger.error("[catalog_discover] SELLER_URLS 未設定。終了")
-            return [], 0, 0, 0, 0, 0
+            return [], 0, 0, 0, 0, 0, 0
         logger.info("[catalog_discover] 競合セラー: %d件 / 最大%dページ/セラー",
                     len(seller_urls), max_pages)
         new_asins, scrape_prices = scrape_seller_asins(
@@ -1512,7 +1512,7 @@ def main():
     )
     parser.add_argument("--dry-run", action="store_true", help="出品せず確認のみ")
     parser.add_argument("--max-new", type=int, default=300, help="新規出品上限（デフォルト300）")
-    parser.add_argument("--min-sellers", type=int, default=3, help="競合セラー最小数（デフォルト3）")
+    parser.add_argument("--min-sellers", type=int, default=0, help="競合セラー最小数（デフォルト0=チェックなし）")
     parser.add_argument("--max-pages", type=int, default=10, dest="max_pages",
                         help="セラーあたり最大スクレイピングページ数（デフォルト10）")
     args = parser.parse_args()
