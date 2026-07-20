@@ -29,7 +29,6 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           GMAIL_DAYS_BACK: "7"
           # SHEET_NAME は設定しない → コードが当月タブ（例: "5月"）を自動検出・自動作成
-          GMAIL_DAYS_BACK: "3"
           AU_FEE_RATE: ${{ secrets.AU_FEE_RATE || '0.15' }}
           DHL_SHIPPING_JPY: ${{ secrets.DHL_SHIPPING_JPY || '3800' }}
         run: python gmail_sheets_sync.py
