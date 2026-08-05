@@ -9,6 +9,17 @@
 - 秘密情報はすべて **GitHub Secrets / `.env`**（`.gitignore` 済み）で管理。`config.py` は `os.getenv` 経由でのみ参照。
 - 空の Secret で落ちないよう、認証値は `(os.getenv(...) or "").strip()` パターンを使う（`config.py` 参照）。
 
+## 🔄 現況・方針転換（2026-08〜）
+
+**このリポジトリの Amazon JP→AU アービトラージ自動化は縮小・停止方向。** 事業を別モデルへピボット中。
+（機微なアカウント情報はPublicリポジトリのため本ファイルに記載しない。判断根拠はオフラインで管理）
+
+- **Amazon(AU)**: 新規出品・価格更新を停止し、good standing のまま畳む方針（Seller Central 休暇設定＋GitHub Actions 無効化）。未発送発送・バイヤー返信・残高出金など後始末を優先。
+- **今後の方向性**: **eBay × オリジナル商品**（自社ブランド/正規在庫を手元から発送）。リテール転売ドロップシップからは撤退。→ 真贋・ドロップシップ規約・Amazon停止の巻き添え、いずれのリスクも回避できるモデル。
+- **既存資産の扱い**: `catalog_discover.py`（ASIN発掘）・`price_update.py`（競合追随）等の“転売機械”は**新モデルでは再利用しない**。eBay出品コード（`ebay_lister.py` 等）は過去に削除済みで、残るのは `apis/ebay_api.py` と `config.py` の `EBAY_*`（再構築の土台）。
+- **進め方の原則**: **商品が先、自動化は後**。低volumeのうちは手動出品で回し、スケールしてから在庫同期・注文→発送の自動化を作る。
+- **次アクション**: (1) AU の GitHub Actions 停止（catalog_discover / recheck_candidates / bulk_reactivate / price_update）、(2) 販売するオリジナル商品の確定、(3) 確定後に eBay 自動化を設計。
+
 ## プロジェクト概要
 
 Amazon **JP → AU** FBM ドロップシッピング型アービトラージの自動化システム。
